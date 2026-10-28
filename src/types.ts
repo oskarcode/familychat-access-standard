@@ -54,17 +54,22 @@ export interface Env {
   readonly AI: Ai;
   readonly AI_MODEL?: string;
   readonly AI_GATEWAY_ID?: string;
+  readonly AUTH_MODE?: "app" | "access";
+  readonly SESSION_SECRET?: string;
+  readonly SETUP_TOKEN?: string;
   readonly ACCESS_ISSUER?: string;
   readonly ACCESS_AUDIENCE?: string;
 }
 
 export interface FamilyChat {
   setupStatus(): Promise<SetupStatus>;
+  setupAppOwner(input: { token: string; expectedToken: string; name: string; email: string; passwordHash: string }): Promise<Member>;
+  loginAppMember(input: { email: string; password: string }): Promise<Member>;
   ensureAccessMember(input: { id: string; name: string; email: string }): Promise<Member>;
   getMember(memberId: string): Promise<Member | null>;
   listMembers(): Promise<Member[]>;
   createInvite(input: { actorId: string; role: Role }): Promise<{ code: string; role: Role; expiresAt: number }>;
-  joinWithInvite(input: { code: string; name: string; email?: string | null }): Promise<Member>;
+  joinWithInvite(input: { code: string; name: string; email?: string | null; passwordHash?: string | null }): Promise<Member>;
   listWorkspaces(memberId: string): Promise<Workspace[]>;
   createWorkspace(input: { actorId: string; title: string }): Promise<Workspace>;
   listMessages(input: { actorId: string; workspaceId: string }): Promise<ChatMessage[]>;

@@ -29,6 +29,7 @@ export class FamilyChat extends DurableObject<Env> {
         name TEXT NOT NULL,
         email TEXT,
         role TEXT NOT NULL,
+        password_hash TEXT,
         created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS invites (
@@ -75,6 +76,7 @@ export class FamilyChat extends DurableObject<Env> {
       );
       CREATE INDEX IF NOT EXISTS messages_workspace_created ON messages(workspace_id, created_at, id);
     `);
+    this.addColumnIfMissing("members", "password_hash", "TEXT");
     this.addColumnIfMissing("connectors", "status", "TEXT NOT NULL DEFAULT 'untested'");
     this.addColumnIfMissing("connectors", "oauth_state", "TEXT");
     this.addColumnIfMissing("connectors", "tool_cache", "TEXT NOT NULL DEFAULT '[]'");
@@ -85,6 +87,47 @@ export class FamilyChat extends DurableObject<Env> {
   async setupStatus(): Promise<SetupStatus> {
     const count = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM members").one().count;
     return { configured: count > 0, memberCount: count };
+  }
+
+  async setupAppOwner(input: { token: string; expectedToken: string; name: string; email: string; passwordHash: string }): Promise<Member> {
+    if ((await this.setupStatus()).configured) throw new Error("Family is already configured");
+    if (!input.expectedToken || input.token !== input.expectedToken) throw new Error("Setup token is invalid");
+    const member: Member = {
+      id: crypto.randomUUID(),
+      name: safeText(input.name, "Name"),
+      email: input.email.trim().toLowerCase(),
+      role: "owner",
+      createdAt: now(),
+    };
+    this.ctx.storage.sql.exec(
+      "INSERT INTO members (id, name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      member.id,
+      member.name,
+      member.email,
+      member.role,
+      input.passwordHash,
+      member.createdAt,
+    );
+    const workspace = await this.createWorkspace({ actorId: member.id, title: "Family room" });
+    await this.appendAgentMessage({
+      workspaceId: workspace.id,
+      text: "Hi — I’m your family agent. I live in this self-deployed family chat. Send normal family messages with “Send to Family”, or invite me in with “Ask Agent”.",
+    });
+    return member;
+  }
+
+  async loginAppMember(input: { email: string; password: string }): Promise<Member> {
+    const email = input.email.trim().toLowerCase();
+    const row = this.ctx.storage.sql
+      .exec<{ id: string; name: string; email: string | null; role: Role; created_at: number; password_hash: string | null }>(
+        "SELECT id, name, email, role, created_at, password_hash FROM members WHERE lower(email) = ?",
+        email,
+      )
+      .toArray()[0];
+    if (row === undefined) throw new Error("Invalid email or password");
+    const { verifyPassword } = await import("./crypto");
+    if (!(await verifyPassword(input.password, row.password_hash))) throw new Error("Invalid email or password");
+    return { id: row.id, name: row.name, email: row.email, role: row.role, createdAt: row.created_at };
   }
 
   async ensureAccessMember(input: { id: string; name: string; email: string }): Promise<Member> {
@@ -174,7 +217,7 @@ export class FamilyChat extends DurableObject<Env> {
     return { code, role, expiresAt };
   }
 
-  async joinWithInvite(input: { code: string; name: string; email?: string | null }): Promise<Member> {
+  async joinWithInvite(input: { code: string; name: string; email?: string | null; passwordHash?: string | null }): Promise<Member> {
     const code = safeText(input.code, "Invite code", 200);
     const invite = this.ctx.storage.sql
       .exec<{ code: string; role: Role; expires_at: number; used_by: string | null }>(
@@ -191,11 +234,12 @@ export class FamilyChat extends DurableObject<Env> {
       createdAt: now(),
     };
     this.ctx.storage.sql.exec(
-      "INSERT INTO members (id, name, email, role, created_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO members (id, name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
       member.id,
       member.name,
       member.email,
       member.role,
+      input.passwordHash ?? null,
       member.createdAt,
     );
     this.ctx.storage.sql.exec("UPDATE invites SET used_by = ? WHERE code = ?", member.id, code);

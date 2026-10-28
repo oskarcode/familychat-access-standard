@@ -1,4 +1,8 @@
-# Local development bypasses Cloudflare Access and uses a fixed Developer identity.
-# For deployed use, set these Worker variables after creating a Cloudflare Access application.
-ACCESS_ISSUER=https://your-team-name.cloudflareaccess.com
-ACCESS_AUDIENCE=your-access-application-aud-tag
+# Default app auth mode for one-click self-deploy.
+SESSION_SECRET=replace-with-a-long-random-session-signing-secret
+SETUP_TOKEN=replace-with-a-temporary-owner-setup-code
+
+# Optional advanced Cloudflare Access mode.
+# AUTH_MODE=access
+# ACCESS_ISSUER=https://your-team-name.cloudflareaccess.com
+# ACCESS_AUDIENCE=your-access-application-aud-tag

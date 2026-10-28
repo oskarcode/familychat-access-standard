@@ -1,21 +1,31 @@
-# FamilyChat Access Standard
+# FamilyChat Standard
 
-A private AI group chat for your family, deployed to your own Cloudflare account and protected by Cloudflare Access.
+A private AI group chat for your family, self-deployed to your own Cloudflare account.
 
-## Core idea
+## Default one-click-friendly mode
 
-- One Cloudflare Worker deployment = one family space.
+The default mode is app-owned authentication:
+
+- Deploy to Cloudflare provisions the Worker, Durable Object, and Workers AI binding.
+- The deployer provides two secrets: `SESSION_SECRET` and `SETUP_TOKEN`.
+- The first user creates the owner account with the setup token.
+- Owners/admins create invite codes for family members.
+- Chat messages, room state, MCP OAuth state, and connector metadata live in the deployment's Durable Object storage.
+
+## Optional Cloudflare Access mode
+
+Advanced users can set `AUTH_MODE=access` and protect the Worker with Cloudflare Access. In that mode:
+
 - Cloudflare Access is the sign-in layer.
-- Everyone allowed by your Access policy becomes a FamilyChat member.
+- Everyone allowed by the Access policy becomes a FamilyChat member.
 - The first Access-authenticated user becomes owner.
-- Messages, rooms, MCP OAuth state, and connector metadata live in your Durable Object storage.
-- Workers AI powers the resident Family Agent.
+- Set `ACCESS_ISSUER` and `ACCESS_AUDIENCE` after creating the Access application.
 
 ## Deploy to Cloudflare
 
 After this folder is pushed to a public GitHub repository, update the URL below and use the button:
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/oskarcode/familychat-access-standard)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/oskarcode/familychat-standard)
 
 The deploy flow provisions:
 
@@ -23,22 +33,16 @@ The deploy flow provisions:
 - SQLite Durable Object
 - Workers AI binding
 
-It does not provision the Access application automatically. After deployment, open the Worker URL and follow the on-screen Cloudflare Access setup guide.
+Required secrets:
 
-## Cloudflare Access setup
+```env
+SESSION_SECRET=long-random-session-signing-secret
+SETUP_TOKEN=temporary-owner-setup-code
+```
 
-1. Deploy the Worker and copy the `workers.dev` hostname.
-2. In Cloudflare Zero Trust, create an **Access → Self-hosted application**.
-3. Use the Worker hostname as the application domain.
-4. Add a policy allowing your family emails.
-5. Set Worker variables:
-   - `ACCESS_ISSUER=https://<your-team-name>.cloudflareaccess.com`
-   - `ACCESS_AUDIENCE=<Access application AUD tag>`
-6. Open the protected URL. The first verified user becomes owner.
+After deploy, open the `workers.dev` URL, create the owner account, and invite family members.
 
 ## Local development
-
-Localhost bypasses Access and uses a fixed Developer identity.
 
 ```sh
 pnpm install
@@ -52,10 +56,8 @@ pnpm exec wrangler dev
 ```sh
 pnpm install
 pnpm check
-pnpm exec wrangler deploy
+pnpm exec wrangler deploy --secrets-file .wrangler/deploy-secrets.env
 ```
-
-Then configure Cloudflare Access and Worker variables as described above.
 
 ## MCP connectors
 

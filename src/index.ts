@@ -1,4 +1,5 @@
 import { accessIdentity, type AccessState } from "./access";
+import { hashPassword, signSession, verifySession } from "./crypto";
 import { FamilyChat } from "./family-chat";
 import type { ChatMessage, Env, FamilyChat as FamilyChatRpc, Member, Role } from "./types";
 import { appHtml } from "./ui";
@@ -6,12 +7,15 @@ import { appHtml } from "./ui";
 export { FamilyChat };
 
 const FAMILY_DO_NAME = "default-family";
+const SESSION_COOKIE = "familychat_session";
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-type Authed = { readonly member: Member; readonly family: FamilyChatRpc; readonly access: AccessState };
+type Authed = { readonly member: Member; readonly family: FamilyChatRpc; readonly access?: AccessState };
 
 const json = (body: unknown, status = 200, headers?: HeadersInit): Response => Response.json(body, { status, headers });
 const familyStub = (env: Env): FamilyChatRpc => env.FAMILY.getByName(FAMILY_DO_NAME) as unknown as FamilyChatRpc;
 const publicOrigin = (request: Request): string => new URL(request.url).origin;
+const authMode = (env: Env): "app" | "access" => env.AUTH_MODE === "access" ? "access" : "app";
 
 const requestJson = async (request: Request): Promise<Record<string, unknown>> => {
   const text = await request.text();
@@ -31,6 +35,24 @@ const optionalTextField = (body: Record<string, unknown>, key: string): string |
   const value = body[key];
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 };
+
+const cookieValue = (request: Request, name: string): string | null => {
+  const cookie = request.headers.get("Cookie");
+  if (cookie === null) return null;
+  for (const part of cookie.split(";")) {
+    const [rawName, ...rawValue] = part.trim().split("=");
+    if (rawName === name) return rawValue.join("=");
+  }
+  return null;
+};
+
+const sessionCookie = async (memberId: string, secret: string, request: Request): Promise<string> => {
+  const token = await signSession({ memberId, exp: Date.now() + SESSION_TTL_MS }, secret);
+  const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
+  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`;
+};
+
+const clearCookie = (): string => `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 
 const accessInstructions = (request: Request, env: Env, state: AccessState): Record<string, unknown> => ({
   state: state.status,
@@ -54,10 +76,25 @@ async function currentAccess(request: Request, env: Env): Promise<Authed | Acces
   return { member, family, access };
 }
 
+async function currentAppSession(request: Request, env: Env): Promise<Authed | null> {
+  if (!env.SESSION_SECRET) return null;
+  const token = cookieValue(request, SESSION_COOKIE);
+  if (token === null) return null;
+  const payload = await verifySession(token, env.SESSION_SECRET);
+  if (payload === null) return null;
+  const family = familyStub(env);
+  const member = await family.getMember(payload.memberId);
+  return member === null ? null : { member, family };
+}
+
 async function requireAuth(request: Request, env: Env): Promise<Authed | Response> {
-  const current = await currentAccess(request, env);
-  if ("member" in current) return current;
-  return json({ error: "Cloudflare Access identity is unavailable", access: accessInstructions(request, env, current) }, current.status === "missing_config" ? 503 : 401);
+  if (authMode(env) === "access") {
+    const current = await currentAccess(request, env);
+    if ("member" in current) return current;
+    return json({ error: "Cloudflare Access identity is unavailable", access: accessInstructions(request, env, current) }, current.status === "missing_config" ? 503 : 401);
+  }
+  const current = await currentAppSession(request, env);
+  return current ?? json({ error: "Sign in required" }, 401);
 }
 
 const formatTranscript = (messages: ChatMessage[]): string => messages.map((message) => `${message.authorName} (${message.kind}): ${message.text}`).join("\n");
@@ -100,12 +137,50 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   const family = familyStub(env);
 
   if (url.pathname === "/api/me" && request.method === "GET") {
-    const current = await currentAccess(request, env);
     const setup = await family.setupStatus();
-    return "member" in current
-      ? json({ ok: true, access: { state: current.access.status }, member: current.member, setup })
-      : json({ ok: false, access: accessInstructions(request, env, current), member: null, setup });
+    if (authMode(env) === "access") {
+      const current = await currentAccess(request, env);
+      return "member" in current
+        ? json({ ok: true, mode: "access", access: { state: current.access?.status }, member: current.member, setup })
+        : json({ ok: false, mode: "access", access: accessInstructions(request, env, current), member: null, setup });
+    }
+    const current = await currentAppSession(request, env);
+    return json({ ok: current !== null, mode: "app", configured: Boolean(env.SESSION_SECRET && env.SETUP_TOKEN), member: current?.member ?? null, setup });
   }
+
+  if (authMode(env) === "app" && url.pathname === "/api/setup" && request.method === "POST") {
+    if (!env.SESSION_SECRET || !env.SETUP_TOKEN) return json({ error: "SESSION_SECRET and SETUP_TOKEN must be configured" }, 500);
+    const body = await requestJson(request);
+    const member = await family.setupAppOwner({
+      token: textField(body, "token"),
+      expectedToken: env.SETUP_TOKEN,
+      name: textField(body, "name"),
+      email: textField(body, "email"),
+      passwordHash: await hashPassword(textField(body, "password")),
+    });
+    return json({ member }, 201, { "Set-Cookie": await sessionCookie(member.id, env.SESSION_SECRET, request) });
+  }
+
+  if (authMode(env) === "app" && url.pathname === "/api/login" && request.method === "POST") {
+    if (!env.SESSION_SECRET) return json({ error: "SESSION_SECRET is not configured" }, 500);
+    const body = await requestJson(request);
+    const member = await family.loginAppMember({ email: textField(body, "email"), password: textField(body, "password") });
+    return json({ member }, 200, { "Set-Cookie": await sessionCookie(member.id, env.SESSION_SECRET, request) });
+  }
+
+  if (authMode(env) === "app" && url.pathname === "/api/join" && request.method === "POST") {
+    if (!env.SESSION_SECRET) return json({ error: "SESSION_SECRET is not configured" }, 500);
+    const body = await requestJson(request);
+    const member = await family.joinWithInvite({
+      code: textField(body, "code"),
+      name: textField(body, "name"),
+      email: textField(body, "email"),
+      passwordHash: await hashPassword(textField(body, "password")),
+    });
+    return json({ member }, 201, { "Set-Cookie": await sessionCookie(member.id, env.SESSION_SECRET, request) });
+  }
+
+  if (authMode(env) === "app" && url.pathname === "/api/logout" && request.method === "POST") return json({ ok: true }, 200, { "Set-Cookie": clearCookie() });
 
   if (url.pathname === "/api/mcp/callback" && request.method === "GET") {
     const connectorId = url.searchParams.get("connector");
@@ -118,6 +193,13 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   if (authed instanceof Response) return authed;
 
   if (url.pathname === "/api/members" && request.method === "GET") return json({ members: await authed.family.listMembers() });
+
+  if (authMode(env) === "app" && url.pathname === "/api/invites" && request.method === "POST") {
+    if (authed.member.role !== "owner" && authed.member.role !== "admin") return json({ error: "Only owners and admins can invite members" }, 403);
+    const body = await requestJson(request);
+    const role: Role = optionalTextField(body, "role") === "admin" ? "admin" : "member";
+    return json(await authed.family.createInvite({ actorId: authed.member.id, role }), 201);
+  }
 
   if (url.pathname === "/api/workspaces" && request.method === "GET") return json({ workspaces: await authed.family.listWorkspaces(authed.member.id) });
   if (url.pathname === "/api/workspaces" && request.method === "POST") {
