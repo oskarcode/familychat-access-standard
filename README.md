@@ -2,24 +2,6 @@
 
 A private AI group chat for your family, self-deployed to your own Cloudflare account.
 
-## About the Author
-
-### 🚀 About Me
-
-My name is Oskar Ablimit, and I am a Senior Sales Engineer with an engineering mindset, holding a Master of Engineering in Cloud Computing from George Washington University. I foster long-term tech C-suite connections and specialize in Cloud Security, AI, Network, and Cybersecurity solutions across Fortune 500 tech firms, bridging technical expertise with business transformation.
-
-### 🏆 Professional Achievements
-
-Proven technical sales experience with $1M+ quota achievement and 8+ years of consultative-based selling for IaaS and SaaS solutions. Currently serving as a Senior Sales Engineer at Cloudflare in New York, leveraging my top 10% enterprise sales performance with deep technical expertise to drive customer success through solution architecture and technical demonstrations.
-
-### 👨‍🏫 Teaching & Mentorship
-
-Adjunct Professor at Yeshiva University, delivering comprehensive cloud computing courses with hands-on AWS projects to graduate students in AI, Data Science, and Cybersecurity tracks.
-
-### 💡 Technical Focus
-
-My technical expertise combines strong learning and hands-on experience in Cloud, Cybersecurity, and AI technologies. I enjoy building Django applications and exploring new technologies in my spare time, bridging the gap between technical solutions and business transformation through solution engineering excellence.
-
 ## Default one-click-friendly mode
 
 The default mode is app-owned authentication:
