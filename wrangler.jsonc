@@ -29,9 +29,6 @@
     "ACCESS_ISSUER": "",
     "ACCESS_AUDIENCE": ""
   },
-  "secrets": {
-    "required": ["SESSION_SECRET", "SETUP_TOKEN"]
-  },
   "observability": {
     "enabled": true,
     "traces": {

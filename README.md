@@ -7,19 +7,19 @@ A private AI group chat for your family, self-deployed to your own Cloudflare ac
 The default mode is app-owned authentication:
 
 - Deploy to Cloudflare provisions the Worker, Durable Object, and Workers AI binding.
-- The deployer provides two secrets: `SESSION_SECRET` and `SETUP_TOKEN`.
+- If you do not use the Access wizard, set `SESSION_SECRET` and `SETUP_TOKEN` manually.
 - The first user creates the owner account with the setup token.
 - Owners/admins create invite codes for family members.
 - Chat messages, room state, MCP OAuth state, and connector metadata live in the deployment's Durable Object storage.
 
 ## Optional Cloudflare Access mode
 
-Advanced users can set `AUTH_MODE=access` and protect the Worker with Cloudflare Access. In that mode:
+The custom deploy wizard can set `AUTH_MODE=access` and protect the Worker with Cloudflare Access. In that mode:
 
 - Cloudflare Access is the sign-in layer.
 - Everyone allowed by the Access policy becomes a FamilyChat member.
 - The first Access-authenticated user becomes owner.
-- Set `ACCESS_ISSUER` and `ACCESS_AUDIENCE` after creating the Access application.
+- The wizard sets `ACCESS_ISSUER` and `ACCESS_AUDIENCE` automatically.
 
 ## Deploy to Cloudflare
 
@@ -33,14 +33,28 @@ The deploy flow provisions:
 - SQLite Durable Object
 - Workers AI binding
 
-Required secrets:
+For the Cloudflare Access-first flow, use the custom wizard after deploy:
+
+```text
+https://familychat-deploy-wizard.oskarmansanqu.workers.dev
+```
+
+The wizard creates the Cloudflare Access application/policy and writes these Worker secrets for you:
+
+```env
+AUTH_MODE=access
+ACCESS_ISSUER=https://your-team.cloudflareaccess.com
+ACCESS_AUDIENCE=your-access-app-aud
+```
+
+For the fallback app-auth mode, manually set these secrets and then open the Worker URL:
 
 ```env
 SESSION_SECRET=long-random-session-signing-secret
 SETUP_TOKEN=temporary-owner-setup-code
 ```
 
-After deploy, open the `workers.dev` URL, create the owner account, and invite family members.
+After Access setup, opening the `workers.dev` URL should trigger Cloudflare Access directly. In app-auth mode, the URL shows the owner setup screen.
 
 ## Local development
 
