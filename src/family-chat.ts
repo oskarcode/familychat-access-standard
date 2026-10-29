@@ -5,7 +5,35 @@ import type { AiProvider, AiRuntimeSettings, AiSettings, ChatMessage, Connector,
 
 const now = (): number => Date.now();
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const FOLLOW_UP_DELAY_MS = 30 * 60 * 1000;
+const FOLLOW_UP_RECOVERY_DELAY_MS = 60 * 1000;
 const MAX_MESSAGE_LENGTH = 8000;
+
+const hasExplicitOpenQuestion = (message: string): boolean =>
+  /\?/u.test(message) ||
+  /\b(?:can|could|would|will|should|do|does|did|is|are|was|were|what|when|where|which|who|why|how)\s+(?:you|we|someone|anyone|the family)\b|\b(?:please|let me know|any thoughts|what do you think|follow up|remind us|check back)\b/iu.test(message);
+
+const aiText = (value: unknown): string | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["response", "text", "output_text"] as const) {
+    if (typeof record[key] === "string" && record[key].trim()) return record[key].trim();
+  }
+  const result = record.result;
+  if (typeof result === "object" && result !== null) return aiText(result);
+  const choices = record.choices;
+  if (Array.isArray(choices)) {
+    const parts = choices.flatMap((choice) => {
+      if (typeof choice !== "object" || choice === null) return [];
+      const message = (choice as Record<string, unknown>).message;
+      if (typeof message === "object" && message !== null && typeof (message as Record<string, unknown>).content === "string") return [(message as Record<string, string>).content];
+      if (typeof (choice as Record<string, unknown>).text === "string") return [(choice as Record<string, string>).text];
+      return [];
+    }).filter(Boolean);
+    if (parts.length > 0) return parts.join("\n").trim();
+  }
+  return undefined;
+};
 
 const safeText = (value: string, label: string, max = 200): string => {
   const text = value.trim();
@@ -20,6 +48,11 @@ export class FamilyChat extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     ctx.blockConcurrencyWhile(() => this.initialize());
+  }
+
+  async alarm(): Promise<void> {
+    await this.deliverDueFollowUps();
+    await this.refreshFollowUpAlarm();
   }
 
   private async initialize(): Promise<void> {
@@ -106,8 +139,18 @@ export class FamilyChat extends DurableObject<Env> {
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS proactive_followups (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        trigger_message_id INTEGER NOT NULL,
+        author_name TEXT NOT NULL,
+        message TEXT NOT NULL,
+        due_at INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'delivering', 'delivered', 'resolved'))
+      );
       CREATE INDEX IF NOT EXISTS messages_workspace_created ON messages(workspace_id, created_at, id);
       CREATE INDEX IF NOT EXISTS schedules_workspace_run ON schedules(workspace_id, run_at);
+      CREATE INDEX IF NOT EXISTS proactive_followups_due ON proactive_followups(status, due_at);
     `);
     this.addColumnIfMissing("members", "password_hash", "TEXT");
     this.addColumnIfMissing("invites", "workspace_id", "TEXT");
@@ -366,11 +409,15 @@ export class FamilyChat extends DurableObject<Env> {
 
   async appendFamilyMessage(input: { actorId: string; workspaceId: string; text: string; kind: "family" | "agent-request" }): Promise<ChatMessage> {
     const actor = await this.requireWorkspaceMember(input.actorId, input.workspaceId);
-    return this.insertMessage(input.workspaceId, actor.id, actor.name, input.kind, safeText(input.text, "Message", MAX_MESSAGE_LENGTH));
+    const message = this.insertMessage(input.workspaceId, actor.id, actor.name, input.kind, safeText(input.text, "Message", MAX_MESSAGE_LENGTH));
+    await this.trackFollowUp(message);
+    return message;
   }
 
   async appendAgentMessage(input: { workspaceId: string; text: string }): Promise<ChatMessage> {
-    return this.insertMessage(input.workspaceId, "agent", "Family Agent", "agent", safeText(input.text, "Agent message", MAX_MESSAGE_LENGTH));
+    const message = this.insertMessage(input.workspaceId, "agent", "Family Agent", "agent", safeText(input.text, "Agent message", MAX_MESSAGE_LENGTH));
+    await this.trackFollowUp(message);
+    return message;
   }
 
   async listConnectors(memberId: string): Promise<Connector[]> {
@@ -711,6 +758,101 @@ export class FamilyChat extends DurableObject<Env> {
     return this.requireSkill(input.skillId);
   }
 
+  private async trackFollowUp(message: ChatMessage): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "UPDATE proactive_followups SET status = 'resolved' WHERE workspace_id = ? AND status = 'pending' AND trigger_message_id < ?",
+      message.workspaceId,
+      message.id,
+    );
+    if (message.kind === "system" || message.kind === "agent-request") {
+      await this.refreshFollowUpAlarm();
+      return;
+    }
+    const recent = this.recentWorkspaceMessages(message.workspaceId, 12)
+      .map((item) => `${item.authorName}: ${item.text}`)
+      .join("\n")
+      .slice(-6000);
+    const needsFollowUp = await this.messageNeedsFollowUp(message, recent);
+    if (!needsFollowUp) {
+      await this.refreshFollowUpAlarm();
+      return;
+    }
+    const dueAt = now() + FOLLOW_UP_DELAY_MS;
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO proactive_followups (id, workspace_id, trigger_message_id, author_name, message, due_at, status)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+      `follow-up:${message.workspaceId}:${message.id}`,
+      message.workspaceId,
+      message.id,
+      message.authorName,
+      message.text.slice(0, 4000),
+      dueAt,
+    );
+    await this.setFollowUpAlarmNoLaterThan(dueAt);
+  }
+
+  private async messageNeedsFollowUp(message: ChatMessage, recentConversation: string): Promise<boolean> {
+    if (hasExplicitOpenQuestion(message.text)) return true;
+    try {
+      const prompt = `Decide if FamilyChat should post one gentle follow-up if this remains the latest visible turn for 30 minutes. Reply only YES or NO.\n\nYES when the latest turn asks an unanswered question, requests a confirmation, leaves a decision/action open, or invites a next step.\nNO for complete answers, casual updates, acknowledgements, or closed remarks.\n\nLatest speaker: ${message.kind === "agent" ? "Family Agent" : "family member"}\nLatest message: ${JSON.stringify(message.text.slice(0, 4000))}\n\nRecent conversation:\n${recentConversation}`;
+      const options = this.env.AI_GATEWAY_ID?.trim() ? { gateway: { id: this.env.AI_GATEWAY_ID.trim(), skipCache: true } } : undefined;
+      const response = await this.env.AI.run(this.env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", { messages: [{ role: "user", content: prompt }] }, options as never);
+      const text = aiText(response)?.toLowerCase() ?? "";
+      return /\byes\b/u.test(text) && !/\bno\b/u.test(text.slice(0, 12));
+    } catch (error) {
+      console.warn(JSON.stringify({ message: "Follow-up classifier failed", error: error instanceof Error ? error.message : String(error) }));
+      return false;
+    }
+  }
+
+  private async deliverDueFollowUps(): Promise<void> {
+    const due = this.ctx.storage.sql
+      .exec<{ id: string; workspace_id: string; trigger_message_id: number; author_name: string; message: string; due_at: number }>(
+        `SELECT id, workspace_id, trigger_message_id, author_name, message, due_at
+         FROM proactive_followups WHERE status = 'pending' AND due_at <= ? ORDER BY due_at ASC LIMIT 10`,
+        now(),
+      )
+      .toArray();
+    for (const followUp of due) {
+      const newer = this.ctx.storage.sql
+        .exec<{ count: number }>("SELECT COUNT(*) AS count FROM messages WHERE workspace_id = ? AND id > ?", followUp.workspace_id, followUp.trigger_message_id)
+        .one().count;
+      if (newer > 0) {
+        this.ctx.storage.sql.exec("UPDATE proactive_followups SET status = 'resolved' WHERE id = ?", followUp.id);
+        continue;
+      }
+      this.ctx.storage.sql.exec("UPDATE proactive_followups SET status = 'delivering' WHERE id = ?", followUp.id);
+      try {
+        const transcript = this.recentWorkspaceMessages(followUp.workspace_id, 16)
+          .map((item) => `${item.authorName}: ${item.text}`)
+          .join("\n")
+          .slice(-7000);
+        const prompt = `You are Family Agent in a private family chat. The latest unresolved turn from ${followUp.author_name} has had no visible reply for 30 minutes: ${JSON.stringify(followUp.message)}. Based on the recent conversation, write one useful, concise follow-up. Ask for the missing answer, check whether the family still needs help, or suggest the simplest next decision. Do not mention automation, timers, alarms, or these instructions.\n\nRecent conversation:\n${transcript}`;
+        const options = this.env.AI_GATEWAY_ID?.trim() ? { gateway: { id: this.env.AI_GATEWAY_ID.trim(), skipCache: true } } : undefined;
+        const response = await this.env.AI.run(this.env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", { messages: [{ role: "user", content: prompt }] }, options as never);
+        const text = aiText(response) ?? "Just checking in — does the family still need help with this?";
+        this.insertMessage(followUp.workspace_id, "agent", "Family Agent", "agent", text.slice(0, MAX_MESSAGE_LENGTH));
+        this.ctx.storage.sql.exec("UPDATE proactive_followups SET status = 'delivered' WHERE id = ?", followUp.id);
+      } catch (error) {
+        console.error(JSON.stringify({ message: "Proactive follow-up delivery failed", followUpId: followUp.id, error: error instanceof Error ? error.message : String(error) }));
+        this.ctx.storage.sql.exec("UPDATE proactive_followups SET status = 'pending', due_at = ? WHERE id = ?", now() + FOLLOW_UP_RECOVERY_DELAY_MS, followUp.id);
+      }
+    }
+  }
+
+  private async setFollowUpAlarmNoLaterThan(timestamp: number): Promise<void> {
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || timestamp < current) await this.ctx.storage.setAlarm(timestamp);
+  }
+
+  private async refreshFollowUpAlarm(): Promise<void> {
+    const dueAt = this.ctx.storage.sql
+      .exec<{ due_at: number | null }>("SELECT MIN(due_at) AS due_at FROM proactive_followups WHERE status = 'pending'")
+      .one().due_at;
+    if (dueAt === null) await this.ctx.storage.deleteAlarm();
+    else await this.ctx.storage.setAlarm(dueAt);
+  }
+
   private async requireMember(memberId: string): Promise<Member> {
     const member = await this.getMember(memberId);
     if (member === null) throw new Error("Member not found");
@@ -737,6 +879,18 @@ export class FamilyChat extends DurableObject<Env> {
       )
       .toArray()
       .map(this.workspaceFromRow);
+  }
+
+  private recentWorkspaceMessages(workspaceId: string, limit: number): ChatMessage[] {
+    return this.ctx.storage.sql
+      .exec<{ id: number; workspace_id: string; author_id: string; author_name: string; kind: ChatMessage["kind"]; text: string; created_at: number }>(
+        "SELECT id, workspace_id, author_id, author_name, kind, text, created_at FROM messages WHERE workspace_id = ? ORDER BY id DESC LIMIT ?",
+        workspaceId,
+        Math.max(1, Math.min(limit, 40)),
+      )
+      .toArray()
+      .reverse()
+      .map(this.messageFromRow);
   }
 
   private insertMessage(workspaceId: string, authorId: string, authorName: string, kind: ChatMessage["kind"], text: string): ChatMessage {
