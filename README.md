@@ -42,10 +42,11 @@ https://familychat-deploy-wizard.oskarmansanqu.workers.dev
 The wizard creates the Cloudflare Access application/policy and writes these Worker secrets for you:
 
 ```env
-AUTH_MODE=access
 ACCESS_ISSUER=https://your-team.cloudflareaccess.com
 ACCESS_AUDIENCE=your-access-app-aud
 ```
+
+FamilyChat automatically switches to Access mode when both Access values are present, unless `AUTH_MODE=app` is explicitly configured.
 
 For the fallback app-auth mode, manually set these secrets and then open the Worker URL:
 

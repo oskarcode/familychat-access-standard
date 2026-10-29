@@ -15,7 +15,11 @@ type Authed = { readonly member: Member; readonly family: FamilyChatRpc; readonl
 const json = (body: unknown, status = 200, headers?: HeadersInit): Response => Response.json(body, { status, headers });
 const familyStub = (env: Env): FamilyChatRpc => env.FAMILY.getByName(FAMILY_DO_NAME) as unknown as FamilyChatRpc;
 const publicOrigin = (request: Request): string => new URL(request.url).origin;
-const authMode = (env: Env): "app" | "access" => env.AUTH_MODE === "access" ? "access" : "app";
+const authMode = (env: Env): "app" | "access" => {
+  if (env.AUTH_MODE === "access") return "access";
+  if (env.AUTH_MODE === "app") return "app";
+  return env.ACCESS_ISSUER && env.ACCESS_AUDIENCE ? "access" : "app";
+};
 
 const requestJson = async (request: Request): Promise<Record<string, unknown>> => {
   const text = await request.text();
