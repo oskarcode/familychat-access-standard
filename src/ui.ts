@@ -5,42 +5,70 @@ export const appHtml = String.raw`<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FamilyChat</title>
   <style>
-    :root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #201b16; background: #f7f2ea; }
-    body { margin: 0; }
-    button, input, textarea, select { font: inherit; box-sizing: border-box; }
-    button { border: 0; border-radius: 999px; padding: .72rem 1rem; background: #2f6fed; color: white; cursor: pointer; font-weight: 850; }
-    button.secondary { background: #ece3d8; color: #2d251d; }
-    button.agent { background: #6d3fd3; }
-    input, textarea, select { border: 1px solid #d8caba; border-radius: 14px; padding: .78rem; background: white; color: #201b16; width: 100%; }
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #20242c; background: #f7f8fa; --accent:#635bff; --accent-hover:#5149e8; --accent-soft:#efefff; --blue:#2563eb; --surface:#fff; --surface-muted:#f6f7f9; --line:#e5e7eb; --text-muted:#68707d; --danger:#b4233c; --shadow-sm:0 1px 2px rgb(16 24 40 / 5%); --shadow-lg:0 16px 40px rgb(16 24 40 / 10%); }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body { margin: 0; background: #f7f8fa; color: #20242c; font-size: .9375rem; line-height: 1.5; }
+    body.app-ready { overflow: hidden; }
+    button, input, textarea, select { font: inherit; }
+    button { min-height: 2.375rem; border: 1px solid var(--line); border-radius: .625rem; padding: .5rem .75rem; background: var(--surface); color: inherit; box-shadow: var(--shadow-sm); cursor: pointer; font-weight: 700; transition: background 140ms ease, border-color 140ms ease, transform 140ms ease; }
+    button:hover:not(:disabled) { border-color: #c9cdd4; background: #fafafa; }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button.secondary { background: var(--surface); color: #20242c; }
+    button.agent, #sendFamily { border-color: var(--accent); background: var(--accent); color: white; }
+    #sendFamily { border-color: var(--blue); background: var(--blue); }
+    button.agent:hover:not(:disabled), #sendFamily:hover:not(:disabled) { background: var(--accent-hover); color: white; }
+    input, textarea, select { width: 100%; border: 1px solid var(--line); border-radius: .625rem; padding: .625rem .75rem; background: white; color: #20242c; }
     textarea { min-height: 5rem; resize: vertical; }
     .shell { max-width: 1180px; margin: 0 auto; padding: 1.5rem; }
-    .hero, .card { background: rgba(255,255,255,.84); border: 1px solid #eadbc9; border-radius: 24px; padding: 1rem; box-shadow: 0 10px 30px rgba(70,42,18,.06); }
-    .hero { background: linear-gradient(135deg, #fffaf3, #efe1ff); border-radius: 30px; padding: 1.5rem; }
+    body.app-ready .shell { max-width: none; height: 100dvh; padding: 0; }
+    body.app-ready .hero { display: none; }
+    .hero, .card { background: var(--surface); border: 1px solid var(--line); border-radius: 1rem; padding: 1rem; box-shadow: var(--shadow-lg); }
+    .hero { background: linear-gradient(135deg, #fff, var(--accent-soft)); border-radius: 1.25rem; padding: 1.5rem; }
+    .hero h1 { margin: 0 0 .25rem; font-size: clamp(2rem, 5vw, 3rem); letter-spacing: -.045em; }
     .auth { max-width: 1000px; margin: 1rem auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .story { background: linear-gradient(160deg, #2f241c, #5d3bd6); color: white; border: 0; padding: 1.4rem; }
+    .story { background: linear-gradient(160deg, #20242c, var(--accent)); color: white; border: 0; padding: 1.4rem; }
     .story h2 { font-size: clamp(1.8rem, 4vw, 3rem); line-height: 1; letter-spacing: -.04em; margin: 0 0 1rem; }
     .story p, .story .muted { color: rgba(255,255,255,.82); }
     .pill-list { display: grid; gap: .65rem; margin-top: 1.25rem; }
-    .pill { display: flex; gap: .6rem; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); border-radius: 18px; padding: .75rem; }
-    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .35rem; background: #f5eadf; padding: .35rem; border-radius: 999px; }
-    .tabs button { background: transparent; color: #5d5147; padding: .55rem; }
-    .tabs button.active { background: white; color: #201b16; box-shadow: 0 3px 12px rgba(70,42,18,.08); }
+    .pill { display: flex; gap: .6rem; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); border-radius: .875rem; padding: .75rem; }
+    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: .35rem; background: var(--surface-muted); padding: .35rem; border-radius: .875rem; }
+    .tabs button { background: transparent; color: var(--text-muted); box-shadow: none; padding: .55rem; }
+    .tabs button.active { background: white; color: #20242c; box-shadow: var(--shadow-sm); }
     .grid { display: grid; grid-template-columns: 280px minmax(0,1fr) 300px; gap: 1rem; margin-top: 1rem; }
+    body.app-ready .grid { height: 100dvh; grid-template-columns: minmax(15rem, 18rem) minmax(0, 1fr) minmax(18rem, 22rem); gap: 0; margin: 0; background: var(--surface); }
+    body.app-ready .grid > .card { min-height: 0; border-width: 0; border-radius: 0; box-shadow: none; }
+    body.app-ready .grid > aside:first-child { display: flex; flex-direction: column; overflow-y: auto; border-right: 1px solid var(--line); background: var(--surface-muted); padding: 1rem; }
+    body.app-ready .grid > aside:last-child { overflow-y: auto; border-left: 1px solid var(--line); background: var(--surface); padding: 1rem; }
+    body.app-ready .grid > section.card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; gap: 0; padding: 0; overflow: hidden; }
+    body.app-ready .grid > section.card > .row:first-child { padding: .875rem 1.25rem; border-bottom: 1px solid var(--line); background: rgb(255 255 255 / 92%); backdrop-filter: blur(12px); }
+    body.app-ready .grid h2 { margin: .5rem 0; letter-spacing: -.02em; }
+    body.app-ready aside h2 { color: var(--text-muted); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; }
     .stack { display: grid; gap: .75rem; }
     .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
-    .muted { color: #6d6258; font-size: .92rem; }
-    .error { color: #9f1239; font-weight: 800; }
+    .muted { color: var(--text-muted); font-size: .92rem; }
+    .error { color: var(--danger); font-weight: 800; }
     .hidden { display: none !important; }
-    .item { display: block; width: 100%; text-align: left; margin-bottom: .4rem; }
-    .item.active { background: #1f2937; color: white; }
-    .messages { height: 56vh; overflow: auto; display: flex; flex-direction: column; gap: .75rem; }
-    .msg { border-radius: 20px; padding: .8rem .9rem; background: white; border: 1px solid #eadbc9; max-width: 78%; white-space: pre-wrap; }
-    .msg.mine { align-self: flex-end; background: #eaf1ff; }
-    .msg.agent, .msg.agent-request { background: #f0eaff; border-color: #d6c6ff; }
-    .byline { font-weight: 900; font-size: .84rem; margin-bottom: .25rem; }
-    code { background: #f1e8dc; padding: .15rem .35rem; border-radius: 8px; }
+    .item { display: block; width: 100%; border: 0; box-shadow: none; text-align: left; margin-bottom: .4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .item.active { background: var(--surface); color: #20242c; box-shadow: var(--shadow-sm); font-weight: 700; }
+    .messages { height: 56vh; overflow-y: auto; overflow-anchor: none; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 1.15rem; padding: 1.75rem max(1rem, calc((100% - 52rem) / 2)); background: var(--surface); scrollbar-gutter: stable; }
+    body.app-ready .messages { height: auto; min-height: 0; }
+    .msg { display: grid; gap: .375rem; max-width: 48rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .msg.mine { align-self: flex-end; width: fit-content; max-width: min(82%, 42rem); padding: .8rem 1rem; border: 1px solid #e9e6e2; border-radius: 1.25rem 1.25rem .35rem 1.25rem; background: #f4f2ef; color: #2f2c29; }
+    .msg.agent, .msg.agent-request { align-self: stretch; padding-inline: .125rem; border: 0; background: transparent; }
+    .msg.agent-request { color: var(--accent); }
+    .msg:not(.mine):not(.agent):not(.agent-request) { width: fit-content; max-width: min(82%, 42rem); padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 1.25rem 1.25rem 1.25rem .35rem; background: var(--surface-muted); }
+    .byline { color: var(--text-muted); font-weight: 700; font-size: .6875rem; letter-spacing: .02em; }
+    .msg.mine .byline { color: #837e78; }
+    #composer { width: calc(100% - 2.5rem); min-height: 5rem; margin: 1rem 1.25rem .75rem; border-radius: .875rem; resize: none; }
+    #composer + .row { padding: 0 1.25rem 1rem; }
+    #chatError { padding: 0 1.25rem 1rem; }
+    #members > div { display: grid; gap: .125rem; padding: .35rem 0; }
+    #inviteResult { overflow-wrap: anywhere; }
+    #connectors .card { box-shadow: var(--shadow-sm); }
+    code { background: var(--surface-muted); padding: .15rem .35rem; border-radius: .4rem; }
     pre { overflow: auto; max-height: 12rem; }
-    @media (max-width: 900px) { .grid, .auth { grid-template-columns: 1fr; } .messages { height: 44vh; } .msg { max-width: 100%; } }
+    @media (max-width: 900px) { body.app-ready { overflow: auto; } .grid, .auth, body.app-ready .grid { grid-template-columns: 1fr; height: auto; } body.app-ready .grid > aside:first-child, body.app-ready .grid > aside:last-child { border: 0; } .messages { height: 44vh; } .msg, .msg.mine { max-width: 100%; } }
   </style>
 </head>
 <body>
@@ -121,9 +149,9 @@ export const appHtml = String.raw`<!doctype html>
     const esc = (value) => String(value).replace(/[&<>'"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
     function selectTab(name) { ['Setup','Login','Join'].forEach((n) => { $('tab'+n).classList.toggle('active', n.toLowerCase() === name); $(n.toLowerCase()+'Form').classList.toggle('hidden', n.toLowerCase() !== name); }); $('authError').textContent = ''; }
     ['Setup','Login','Join'].forEach((n) => $('tab'+n).onclick = () => selectTab(n.toLowerCase()));
-    function showAuth(me) { hide('app'); hide('accessSetup'); show('auth'); state.mode = me.mode || 'app'; state.setupConfigured = me.setup?.configured === true; if (state.setupConfigured) selectTab('login'); else selectTab('setup'); $('status').textContent = me.configured === false ? 'Worker secrets SESSION_SECRET and SETUP_TOKEN are required.' : 'Create or sign in to your FamilyChat account.'; }
-    function showAccessSetup(access) { hide('app'); hide('auth'); show('accessSetup'); $('setupHost').textContent = location.host; $('accessState').textContent = access?.state || 'unknown'; $('status').textContent = 'Cloudflare Access setup required'; }
-    async function boot() { const me = await api('/api/me'); hide('auth'); hide('accessSetup'); hide('app'); if (me.mode === 'access' && !me.ok) { showAccessSetup(me.access); return; } if (!me.ok) { showAuth(me); return; } state.member = me.member; state.mode = me.mode; $('status').textContent = 'Signed in as ' + state.member.name + ' · ' + state.member.role; show('app'); await refreshAll(); }
+    function showAuth(me) { document.body.classList.remove('app-ready'); hide('app'); hide('accessSetup'); show('auth'); state.mode = me.mode || 'app'; state.setupConfigured = me.setup?.configured === true; if (state.setupConfigured) selectTab('login'); else selectTab('setup'); $('status').textContent = me.configured === false ? 'Worker secrets SESSION_SECRET and SETUP_TOKEN are required.' : 'Create or sign in to your FamilyChat account.'; }
+    function showAccessSetup(access) { document.body.classList.remove('app-ready'); hide('app'); hide('auth'); show('accessSetup'); $('setupHost').textContent = location.host; $('accessState').textContent = access?.state || 'unknown'; $('status').textContent = 'Cloudflare Access setup required'; }
+    async function boot() { const me = await api('/api/me'); hide('auth'); hide('accessSetup'); hide('app'); if (me.mode === 'access' && !me.ok) { showAccessSetup(me.access); return; } if (!me.ok) { showAuth(me); return; } state.member = me.member; state.mode = me.mode; $('status').textContent = 'Signed in as ' + state.member.name + ' · ' + state.member.role; document.body.classList.add('app-ready'); show('app'); await refreshAll(); }
     async function refreshAll() { const [workspaces, members, connectors] = await Promise.all([api('/api/workspaces'), api('/api/members'), api('/api/connectors')]); state.workspaces = workspaces.workspaces; if (!state.workspaceId && state.workspaces[0]) state.workspaceId = state.workspaces[0].id; renderWorkspaces(); renderMembers(members.members); renderConnectors(connectors.connectors); if (state.workspaceId) await refreshMessages(); }
     function renderMembers(members) { $('members').innerHTML = members.map((m) => '<div><strong>' + esc(m.name) + '</strong><br><span class="muted">' + esc(m.email || '') + ' · ' + esc(m.role) + '</span></div>').join(''); }
     function renderWorkspaces() { $('workspaces').innerHTML = ''; for (const workspace of state.workspaces) { const b = document.createElement('button'); b.className = 'item secondary' + (workspace.id === state.workspaceId ? ' active' : ''); b.textContent = workspace.title; b.onclick = async () => { state.workspaceId = workspace.id; renderWorkspaces(); await refreshMessages(); }; $('workspaces').append(b); } const current = state.workspaces.find((w) => w.id === state.workspaceId); $('roomTitle').textContent = current?.title || 'Family room'; }
