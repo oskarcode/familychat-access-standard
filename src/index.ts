@@ -34,10 +34,13 @@ const AI_MODELS = [
   { provider: "workers-ai", id: "@cf/meta/llama-3.1-70b-instruct", label: "Llama 3.1 70B Instruct", description: "Larger open-weight Llama model where available." },
   { provider: "workers-ai", id: "@cf/mistral/mistral-7b-instruct-v0.2", label: "Mistral 7B Instruct", description: "Small efficient open-weight model." },
   { provider: "workers-ai", id: "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", label: "DeepSeek R1 Distill Qwen 32B", description: "Reasoning-oriented open-weight model where available." },
+  { provider: "workers-ai", id: "@cf/moonshotai/kimi-k2.5", label: "Kimi K2.5", description: "Moonshot AI frontier open model on Workers AI; older/deprecated but useful where still enabled." },
   { provider: "workers-ai", id: "@cf/moonshotai/kimi-k2.6", label: "Kimi K2.6", description: "Moonshot AI frontier open model on Workers AI; may require Workers Paid." },
   { provider: "workers-ai", id: "@cf/moonshotai/kimi-k2.7-code", label: "Kimi K2.7 Code", description: "Moonshot AI agentic coding model on Workers AI; may require Workers Paid." },
   { provider: "workers-ai", id: "@cf/zai-org/glm-4.7-flash", label: "GLM-4.7 Flash", description: "Fast multilingual Z.ai model with long context." },
   { provider: "workers-ai", id: "@cf/zai-org/glm-5.2", label: "GLM-5.2", description: "Z.ai flagship agentic model on Workers AI; may require Workers Paid." },
+  { provider: "workers-ai", id: "@cf/zai-org/glm-5.3-flash", label: "GLM-5.3 Flash", description: "Fast Z.ai GLM-5 generation where available." },
+  { provider: "workers-ai", id: "@cf/zai-org/glm-5.3", label: "GLM-5.3", description: "Larger Z.ai GLM-5 generation where available." },
   { provider: "anthropic", id: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", description: "Bring your own Anthropic API key." },
   { provider: "anthropic", id: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", description: "Bring your own Anthropic API key." },
 ] as const;
@@ -118,6 +121,39 @@ async function requireAuth(request: Request, env: Env): Promise<Authed | Respons
 
 const formatTranscript = (messages: ChatMessage[]): string => messages.map((message) => `${message.authorName} (${message.kind}): ${message.text}`).join("\n");
 
+const aiText = (value: unknown): string | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["response", "text", "output_text"] as const) {
+    if (typeof record[key] === "string" && record[key].trim()) return record[key].trim();
+  }
+  const result = record.result;
+  if (typeof result === "object" && result !== null) {
+    const nested = aiText(result);
+    if (nested) return nested;
+  }
+  const choices = record.choices;
+  if (Array.isArray(choices)) {
+    const parts = choices.flatMap((choice) => {
+      if (typeof choice !== "object" || choice === null) return [];
+      const message = (choice as Record<string, unknown>).message;
+      if (typeof message === "object" && message !== null && typeof (message as Record<string, unknown>).content === "string") return [(message as Record<string, string>).content];
+      if (typeof (choice as Record<string, unknown>).text === "string") return [(choice as Record<string, string>).text];
+      return [];
+    }).filter(Boolean);
+    if (parts.length > 0) return parts.join("\n").trim();
+  }
+  return undefined;
+};
+
+const transcriptMessages = (transcript: ChatMessage[], system: string): Array<{ role: "system" | "user" | "assistant"; content: string }> => [
+  { role: "system", content: system },
+  ...transcript.map((message) => ({
+    role: message.kind === "agent" ? "assistant" as const : "user" as const,
+    content: `${message.authorName}: ${message.text}`,
+  })),
+];
+
 const popupResult = (origin: string, ok: boolean, message: string): Response => {
   const nonce = crypto.randomUUID().replaceAll("-", "");
   const payload = JSON.stringify({ type: "familychat:mcp-oauth", ok, message });
@@ -138,18 +174,21 @@ async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: stri
   const connectorNote = connectors.length === 0
     ? "No MCP connectors are configured yet."
     : `Configured MCP connectors (not invoked automatically yet): ${connectors.map((connector) => `${connector.label} (${connector.status})`).join(", ")}.`;
-  const prompt = `You are Family Agent, a warm resident AI participant in a private Cloudflare Access-protected family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty.\n\n${connectorNote}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nReply as Family Agent.`;
+  const system = `You are Family Agent, a warm resident AI participant in a private Cloudflare Access-protected family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty. ${connectorNote}`;
+  const prompt = `${system}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nReply as Family Agent.`;
+  const messages = transcriptMessages(transcript, system);
 
   const settings = await family.getAiRuntimeSettings(actorId);
   const provider = settings?.provider ?? "workers-ai";
   const model = settings?.model ?? defaultAiModel(env);
+  let failureDetail = "";
   try {
     if (provider === "anthropic") {
       if (!settings?.apiKey) return "I’m ready to use Claude, but an owner/admin still needs to save an Anthropic API key in Connections → Agent model.";
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: { "content-type": "application/json", "x-api-key": settings.apiKey, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model, max_tokens: 800, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify({ model, max_tokens: 800, system, messages: transcript.map((message) => ({ role: message.kind === "agent" ? "assistant" : "user", content: `${message.authorName}: ${message.text}` })) }),
       });
       const data = await response.json() as { content?: Array<{ type?: string; text?: string }>; error?: { message?: string } };
       if (!response.ok) throw new Error(data.error?.message || `Anthropic request failed (${response.status})`);
@@ -157,16 +196,23 @@ async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: stri
       if (text && text.trim().length > 0) return text.trim();
     } else {
       const options = env.AI_GATEWAY_ID?.trim() ? { gateway: { id: env.AI_GATEWAY_ID.trim(), skipCache: true } } : undefined;
-      const response = await env.AI.run(model, { prompt }, options as never) as { response?: string; result?: { response?: string } };
-      const text = response.response ?? response.result?.response;
-      if (typeof text === "string" && text.trim().length > 0) return text.trim();
+      let response: unknown;
+      try {
+        response = await env.AI.run(model, { messages }, options as never);
+      } catch (messageError) {
+        console.warn(JSON.stringify({ message: "Workers AI messages input failed; retrying prompt input", model, error: messageError instanceof Error ? messageError.message : String(messageError) }));
+        response = await env.AI.run(model, { prompt }, options as never);
+      }
+      const text = aiText(response);
+      if (text && text.trim().length > 0) return text.trim();
     }
   } catch (error) {
-    console.error(JSON.stringify({ message: "AI request failed", provider, model, error: error instanceof Error ? error.message : String(error) }));
+    failureDetail = error instanceof Error ? error.message : String(error);
+    console.error(JSON.stringify({ message: "AI request failed", provider, model, error: failureDetail }));
   }
   return provider === "anthropic"
-    ? "I’m here with the family, but I could not reach Anthropic with the saved Claude settings. Check the API key/model in Connections → Agent model."
-    : "I’m here with the family, but I could not reach Workers AI from this deployment yet. Try another Workers AI model in Connections → Agent model, or switch to Claude with your own Anthropic API key.";
+    ? `I’m here with the family, but I could not reach Anthropic with the saved Claude settings. Check the API key/model in Connections → Agent model.${failureDetail ? ` Details: ${failureDetail}` : ""}`
+    : `I’m here with the family, but I could not reach Workers AI model ${model} from this deployment. Try GLM-4.7 Flash or Llama 3.1 8B, configure an AI Gateway with unified billing, or switch to Claude with your own Anthropic API key.${failureDetail ? ` Details: ${failureDetail}` : ""}`;
 }
 
 async function handleApi(request: Request, env: Env): Promise<Response> {
