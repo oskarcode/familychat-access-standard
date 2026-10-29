@@ -277,11 +277,12 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/api/members" && request.method === "GET") return json({ members: await authed.family.listMembers() });
 
-  if (authMode(env) === "app" && url.pathname === "/api/invites" && request.method === "POST") {
+  if (url.pathname === "/api/invites" && request.method === "POST") {
     if (authed.member.role !== "owner" && authed.member.role !== "admin") return json({ error: "Only owners and admins can invite members" }, 403);
     const body = await requestJson(request);
     const role: Role = optionalTextField(body, "role") === "admin" ? "admin" : "member";
-    return json(await authed.family.createInvite({ actorId: authed.member.id, role }), 201);
+    const invite = await authed.family.createInvite({ actorId: authed.member.id, role });
+    return json({ ...invite, url: `${publicOrigin(request)}/?invite=${encodeURIComponent(invite.code)}` }, 201);
   }
 
   if (url.pathname === "/api/ai/settings" && request.method === "GET") {

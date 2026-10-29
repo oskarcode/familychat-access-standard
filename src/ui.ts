@@ -99,6 +99,7 @@ export const appHtml = String.raw`<!doctype html>
     .conversation-header-lite h2 { margin:0; color:#211f1d; font-size:1.05rem; }
     .conversation-header-lite small { color:var(--text-muted); font-size:.7rem; }
     .conversation-header-lite p { margin:0; }
+    .room-actions { display:flex; align-items:center; justify-content:flex-end; gap:.75rem; flex-wrap:wrap; }
     body.app-ready .messages { padding:1.75rem max(1rem, calc((100% - 52rem) / 2)); }
     .msg.agent, .msg.agent-request { max-width:48rem; }
     .msg.agent .byline, .msg.agent-request .byline { color:#8a8782; }
@@ -186,7 +187,7 @@ export const appHtml = String.raw`<!doctype html>
         <footer class="session-sidebar-footer-lite"><small id="signedInLabel">Signed in</small><button id="logoutButton" class="secondary small-button">Logout</button></footer>
       </aside>
       <section class="card stack conversation-view-lite">
-        <header class="conversation-header-lite"><div><small>Current room</small><h2 id="roomTitle">Family room</h2></div><p class="muted">Send to everyone, or ask the resident Family Agent.</p></header>
+        <header class="conversation-header-lite"><div><small>Current room</small><h2 id="roomTitle">Family room</h2></div><div class="room-actions"><p class="muted">Send to everyone, or ask the resident Family Agent.</p><button id="roomInviteButton" class="secondary small-button" type="button">Invite family</button></div></header>
         <div id="messages" class="messages"></div>
         <form class="prompt-bar" id="composerForm"><textarea id="composer" placeholder="Start a new message…"></textarea><div class="composer-footer"><span class="composer-status" id="modelLabel">Workers AI · open-weight model</span><div class="composer-actions"><button id="sendFamily" class="send-family-button" type="button">Send to Family</button><button id="sendAgent" class="ask-agent-button agent" type="button">Ask Agent</button></div></div></form>
         <p id="chatError" class="error"></p>
@@ -203,7 +204,7 @@ export const appHtml = String.raw`<!doctype html>
     const esc = (value) => String(value).replace(/[&<>'"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
     function selectTab(name) { ['Setup','Login','Join'].forEach((n) => { $('tab'+n).classList.toggle('active', n.toLowerCase() === name); $(n.toLowerCase()+'Form').classList.toggle('hidden', n.toLowerCase() !== name); }); $('authError').textContent = ''; }
     ['Setup','Login','Join'].forEach((n) => $('tab'+n).onclick = () => selectTab(n.toLowerCase()));
-    function showAuth(me) { document.body.classList.remove('app-ready'); hide('app'); hide('accessSetup'); show('auth'); state.mode = me.mode || 'app'; state.setupConfigured = me.setup?.configured === true; if (state.setupConfigured) selectTab('login'); else selectTab('setup'); $('status').textContent = me.configured === false ? 'Worker secrets SESSION_SECRET and SETUP_TOKEN are required.' : 'Create or sign in to your FamilyChat account.'; }
+    function showAuth(me) { document.body.classList.remove('app-ready'); hide('app'); hide('accessSetup'); show('auth'); state.mode = me.mode || 'app'; state.setupConfigured = me.setup?.configured === true; const invite = new URLSearchParams(location.search).get('invite'); if (invite) { $('joinCode').value = invite; selectTab('join'); } else if (state.setupConfigured) selectTab('login'); else selectTab('setup'); $('status').textContent = me.configured === false ? 'Worker secrets SESSION_SECRET and SETUP_TOKEN are required.' : 'Create or sign in to your FamilyChat account.'; }
     function showAccessSetup(access) { document.body.classList.remove('app-ready'); hide('app'); hide('auth'); show('accessSetup'); $('setupHost').textContent = location.host; $('accessState').textContent = access?.state || 'unknown'; $('status').textContent = 'Cloudflare Access setup required'; }
     const initials = (value) => String(value || 'F').trim().split(/\s+/).slice(0,2).map((part) => part[0]).join('').toUpperCase() || 'F';
     async function boot() { const me = await api('/api/me'); hide('auth'); hide('accessSetup'); hide('app'); if (me.mode === 'access' && !me.ok) { showAccessSetup(me.access); return; } if (!me.ok) { showAuth(me); return; } state.member = me.member; state.mode = me.mode; $('status').textContent = 'Signed in as ' + state.member.name + ' · ' + state.member.role; $('memberAvatar').textContent = initials(state.member.name); $('memberLabel').textContent = state.member.name; $('signedInLabel').textContent = state.member.email || state.member.name; document.body.classList.add('app-ready'); show('app'); await refreshAll(); }
@@ -217,7 +218,9 @@ export const appHtml = String.raw`<!doctype html>
     $('setupButton').onclick = async () => { try { await api('/api/setup', { method:'POST', body: JSON.stringify({ name: $('setupName').value, email: $('setupEmail').value, password: $('setupPassword').value, token: $('setupToken').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
     $('loginButton').onclick = async () => { try { await api('/api/login', { method:'POST', body: JSON.stringify({ email: $('loginEmail').value, password: $('loginPassword').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
     $('joinButton').onclick = async () => { try { await api('/api/join', { method:'POST', body: JSON.stringify({ name: $('joinName').value, email: $('joinEmail').value, password: $('joinPassword').value, code: $('joinCode').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
-    $('inviteButton').onclick = async () => { const invite = await api('/api/invites', { method:'POST', body: JSON.stringify({ role:'member' }) }); $('inviteResult').innerHTML = 'Invite code: <code>' + esc(invite.code) + '</code>'; };
+    async function createInviteLink() { const invite = await api('/api/invites', { method:'POST', body: JSON.stringify({ role:'member' }) }); const link = invite.url || (location.origin + '/?invite=' + encodeURIComponent(invite.code)); $('inviteResult').innerHTML = 'Invite link: <code>' + esc(link) + '</code><br><span class="muted">In Access mode, also make sure this email is allowed by the Cloudflare Access policy.</span>'; try { await navigator.clipboard?.writeText(link); $('inviteResult').innerHTML += '<br><span class="muted">Copied to clipboard.</span>'; } catch {} }
+    $('inviteButton').onclick = () => createInviteLink().catch((e) => $('inviteResult').innerHTML = '<span class="error">' + esc(e.message) + '</span>');
+    $('roomInviteButton').onclick = () => createInviteLink().catch((e) => $('chatError').textContent = e.message);
     $('logoutButton').onclick = async () => { await api('/api/logout', { method:'POST', body:'{}' }); location.reload(); };
     async function createRoom() { const provided = $('newWorkspace').value.trim(); const title = provided || 'New room ' + (state.workspaces.length + 1); $('chatError').textContent = ''; try { const workspace = await api('/api/workspaces', { method:'POST', body: JSON.stringify({ title }) }); state.workspaceId = workspace.id; $('newWorkspace').value = ''; await refreshAll(); } catch (e) { $('chatError').textContent = e.message; } }
     $('newWorkspaceButton').onclick = () => createRoom();
