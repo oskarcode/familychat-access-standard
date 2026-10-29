@@ -15,6 +15,17 @@ export type AccessState =
 
 const jwksByIssuer = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `displayNameFromEmail`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `displayNameFromEmail` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 export function displayNameFromEmail(email: string): string {
   const local = email.split("@", 1)[0] || "Family member";
   const words = local
@@ -35,6 +46,17 @@ const accessJwks = (issuer: string): ReturnType<typeof createRemoteJWKSet> => {
   return jwks;
 };
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `accessIdentity`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `accessIdentity` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 export async function accessIdentity(request: Request, env: { ACCESS_ISSUER?: string; ACCESS_AUDIENCE?: string }): Promise<AccessState> {
   const url = new URL(request.url);
   if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {

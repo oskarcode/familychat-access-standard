@@ -52,12 +52,34 @@ class DurableMcpOAuthStore implements McpOAuthStateStore {
   }
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `connectorCallbackUrl`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `connectorCallbackUrl` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 export function connectorCallbackUrl(publicOrigin: string, connectorId: string): string {
   const url = new URL("/api/mcp/callback", publicOrigin);
   url.searchParams.set("connector", connectorId);
   return url.href;
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `createMcpOAuthProvider`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `createMcpOAuthProvider` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 export function createMcpOAuthProvider(options: {
   connectorId: string;
   serverUrl: string;
@@ -81,6 +103,17 @@ export function createMcpOAuthProvider(options: {
   });
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `withClient<T>`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `withClient<T>` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 async function withClient<T>(connector: StoredMcpConnector, oauthProvider: McpOAuthProvider | null, run: (client: McpClient) => Promise<T>): Promise<T> {
   const client = new McpClient({ name: clientName, version: clientVersion, requestTimeoutMs: 20_000 });
   await client.connect(
@@ -97,6 +130,17 @@ async function withClient<T>(connector: StoredMcpConnector, oauthProvider: McpOA
   }
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `connectAndListTools`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `connectAndListTools` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 export async function connectAndListTools(options: {
   connector: StoredMcpConnector;
   publicOrigin: string;
@@ -124,6 +168,17 @@ export async function connectAndListTools(options: {
   }
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `completeMcpOAuth`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `completeMcpOAuth` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 export async function completeMcpOAuth(options: {
   connector: StoredMcpConnector;
   callbackUrl: string;
@@ -155,6 +210,17 @@ export async function completeMcpOAuth(options: {
   return connectAndListTools(options);
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `callMcpTool`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `callMcpTool` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 export async function callMcpTool(options: {
   connector: StoredMcpConnector;
   publicOrigin: string;

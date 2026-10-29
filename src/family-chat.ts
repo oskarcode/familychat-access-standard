@@ -50,11 +50,33 @@ export class FamilyChat extends DurableObject<Env> {
     ctx.blockConcurrencyWhile(() => this.initialize());
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `alarm`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `alarm` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async alarm(): Promise<void> {
     await this.deliverDueFollowUps();
     await this.refreshFollowUpAlarm();
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `initialize`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `initialize` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async initialize(): Promise<void> {
     this.ctx.storage.sql.exec(`
       CREATE TABLE IF NOT EXISTS members (
@@ -161,11 +183,33 @@ export class FamilyChat extends DurableObject<Env> {
     this.addColumnIfMissing("connectors", "last_error", "TEXT");
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `setupStatus`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `setupStatus` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async setupStatus(): Promise<SetupStatus> {
     const count = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM members").one().count;
     return { configured: count > 0, memberCount: count };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `setupAppOwner`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `setupAppOwner` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async setupAppOwner(input: { token: string; expectedToken: string; name: string; email: string; passwordHash: string }): Promise<Member> {
     if ((await this.setupStatus()).configured) throw new Error("Family is already configured");
     if (!input.expectedToken || input.token !== input.expectedToken) throw new Error("Setup token is invalid");
@@ -193,6 +237,17 @@ export class FamilyChat extends DurableObject<Env> {
     return member;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `loginAppMember`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `loginAppMember` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async loginAppMember(input: { email: string; password: string }): Promise<Member> {
     const email = input.email.trim().toLowerCase();
     const row = this.ctx.storage.sql
@@ -207,6 +262,17 @@ export class FamilyChat extends DurableObject<Env> {
     return { id: row.id, name: row.name, email: row.email, role: row.role, createdAt: row.created_at };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `ensureAccessMember`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `ensureAccessMember` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async ensureAccessMember(input: { id: string; name: string; email: string }): Promise<Member> {
     const existing = await this.getMember(input.id);
     if (existing !== null) {
@@ -255,6 +321,17 @@ export class FamilyChat extends DurableObject<Env> {
     return member;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `getMember`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `getMember` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async getMember(memberId: string): Promise<Member | null> {
     const row = this.ctx.storage.sql
       .exec<{ id: string; name: string; email: string | null; role: Role; created_at: number }>(
@@ -267,6 +344,17 @@ export class FamilyChat extends DurableObject<Env> {
       : { id: row.id, name: row.name, email: row.email, role: row.role, createdAt: row.created_at };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listMembers`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listMembers` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async listMembers(): Promise<Member[]> {
     return this.ctx.storage.sql
       .exec<{ id: string; name: string; email: string | null; role: Role; created_at: number }>(
@@ -276,6 +364,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map((row) => ({ id: row.id, name: row.name, email: row.email, role: row.role, createdAt: row.created_at }));
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `createInvite`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `createInvite` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async createInvite(input: { actorId: string; workspaceId: string; role: Role }): Promise<{ code: string; role: Role; workspaceId: string; expiresAt: number }> {
     const actor = await this.requireWorkspaceMember(input.actorId, input.workspaceId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can invite members");
@@ -295,6 +394,17 @@ export class FamilyChat extends DurableObject<Env> {
     return { code, role, workspaceId: input.workspaceId, expiresAt };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `joinWithInvite`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `joinWithInvite` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async joinWithInvite(input: { code: string; name: string; email?: string | null; passwordHash?: string | null }): Promise<Member> {
     const code = safeText(input.code, "Invite code", 200);
     const invite = this.ctx.storage.sql
@@ -343,6 +453,17 @@ export class FamilyChat extends DurableObject<Env> {
     return member;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listWorkspaces`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listWorkspaces` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async listWorkspaces(memberId: string): Promise<Workspace[]> {
     await this.requireMember(memberId);
     return this.ctx.storage.sql
@@ -356,6 +477,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map(this.workspaceFromRow);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `createWorkspace`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `createWorkspace` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async createWorkspace(input: { actorId: string; title: string }): Promise<Workspace> {
     const actor = await this.requireMember(input.actorId);
     const workspace: Workspace = {
@@ -383,6 +515,17 @@ export class FamilyChat extends DurableObject<Env> {
     return workspace;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listMessages`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listMessages` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async listMessages(input: { actorId: string; workspaceId: string }): Promise<ChatMessage[]> {
     await this.requireWorkspaceMember(input.actorId, input.workspaceId);
     return this.ctx.storage.sql
@@ -394,6 +537,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map(this.messageFromRow);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `recentTranscript`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `recentTranscript` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async recentTranscript(input: { actorId: string; workspaceId: string; limit: number }): Promise<ChatMessage[]> {
     await this.requireWorkspaceMember(input.actorId, input.workspaceId);
     return this.ctx.storage.sql
@@ -407,6 +561,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map(this.messageFromRow);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `appendFamilyMessage`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `appendFamilyMessage` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async appendFamilyMessage(input: { actorId: string; workspaceId: string; text: string; kind: "family" | "agent-request" }): Promise<ChatMessage> {
     const actor = await this.requireWorkspaceMember(input.actorId, input.workspaceId);
     const message = this.insertMessage(input.workspaceId, actor.id, actor.name, input.kind, safeText(input.text, "Message", MAX_MESSAGE_LENGTH));
@@ -414,17 +579,50 @@ export class FamilyChat extends DurableObject<Env> {
     return message;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `appendAgentMessage`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `appendAgentMessage` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async appendAgentMessage(input: { workspaceId: string; text: string }): Promise<ChatMessage> {
     const message = this.insertMessage(input.workspaceId, "agent", "Family Agent", "agent", safeText(input.text, "Agent message", MAX_MESSAGE_LENGTH));
     await this.trackFollowUp(message);
     return message;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listConnectors`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listConnectors` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async listConnectors(memberId: string): Promise<Connector[]> {
     await this.requireMember(memberId);
     return this.listStoredConnectors().map(this.connectorFromStored);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `addConnector`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `addConnector` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async addConnector(input: { actorId: string; label: string; url: string; publicOrigin: string }): Promise<Connector> {
     const actor = await this.requireMember(input.actorId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can add connectors");
@@ -443,6 +641,17 @@ export class FamilyChat extends DurableObject<Env> {
     return this.refreshConnector({ actorId: actor.id, connectorId: id, publicOrigin: input.publicOrigin });
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `refreshConnector`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `refreshConnector` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async refreshConnector(input: { actorId: string; connectorId: string; publicOrigin: string }): Promise<Connector> {
     const actor = await this.requireMember(input.actorId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can refresh connectors");
@@ -452,6 +661,17 @@ export class FamilyChat extends DurableObject<Env> {
     return this.connectorFromStored(this.requireStoredConnector(input.connectorId));
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `completeConnectorOAuth`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `completeConnectorOAuth` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async completeConnectorOAuth(input: { connectorId: string; callbackUrl: string; publicOrigin: string }): Promise<Connector> {
     const connector = this.requireStoredConnector(input.connectorId);
     const result = await completeMcpOAuth({
@@ -464,6 +684,17 @@ export class FamilyChat extends DurableObject<Env> {
     return this.connectorFromStored(this.requireStoredConnector(input.connectorId));
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `callConnectorTool`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `callConnectorTool` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async callConnectorTool(input: { actorId: string; connectorId: string; publicOrigin: string; toolName: string; args: Record<string, unknown> }): Promise<unknown> {
     const actor = await this.requireMember(input.actorId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can call connector tools in this starter");
@@ -477,12 +708,34 @@ export class FamilyChat extends DurableObject<Env> {
     });
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `addColumnIfMissing`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `addColumnIfMissing` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private addColumnIfMissing(table: string, column: string, definition: string): void {
     const columns = this.ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray();
     if (columns.some((existing) => existing.name === column)) return;
     this.ctx.storage.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listStoredConnectors`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listStoredConnectors` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private listStoredConnectors(): StoredMcpConnector[] {
     return this.ctx.storage.sql
       .exec<{
@@ -512,6 +765,17 @@ export class FamilyChat extends DurableObject<Env> {
       }));
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `requireStoredConnector`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `requireStoredConnector` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private requireStoredConnector(connectorId: string): StoredMcpConnector {
     const row = this.ctx.storage.sql
       .exec<{
@@ -541,6 +805,17 @@ export class FamilyChat extends DurableObject<Env> {
     };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `connectorFromStored =`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `connectorFromStored =` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private connectorFromStored = (connector: StoredMcpConnector): Connector => {
     const row = this.ctx.storage.sql
       .exec<{ status: Connector["status"]; authorization_url: string | null }>(
@@ -561,6 +836,17 @@ export class FamilyChat extends DurableObject<Env> {
     };
   };
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `parseTools`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `parseTools` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private parseTools(value: string | null): StoredMcpConnector["tools"] {
     if (value === null || value.trim() === "") return [];
     try {
@@ -571,6 +857,17 @@ export class FamilyChat extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `summarizeTools`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `summarizeTools` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private summarizeTools(tools: StoredMcpConnector["tools"]): McpToolSummary[] {
     return tools.map((tool) => ({
       name: tool.name,
@@ -580,6 +877,17 @@ export class FamilyChat extends DurableObject<Env> {
     }));
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `saveMcpResult`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `saveMcpResult` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private saveMcpResult(connectorId: string, status: Connector["status"], tools: StoredMcpConnector["tools"], authorizationUrl?: string, error?: string): void {
     this.ctx.storage.sql.exec(
       "UPDATE connectors SET status = ?, tool_cache = ?, authorization_url = ?, last_error = ? WHERE id = ?",
@@ -591,6 +899,17 @@ export class FamilyChat extends DurableObject<Env> {
     );
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `mcpStateAccess`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `mcpStateAccess` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private mcpStateAccess(): McpOAuthStateAccess {
     return {
       load: (connectorId) => this.requireStoredConnector(connectorId).oauthState,
@@ -604,6 +923,17 @@ export class FamilyChat extends DurableObject<Env> {
     };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `getAiSettings`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `getAiSettings` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async getAiSettings(memberId: string): Promise<AiSettings | null> {
     await this.requireMember(memberId);
     const runtime = await this.getAiRuntimeSettings(memberId);
@@ -612,6 +942,17 @@ export class FamilyChat extends DurableObject<Env> {
     return { ...safe, apiKeyConfigured: Boolean(runtime.apiKey) };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `getAiRuntimeSettings`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `getAiRuntimeSettings` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async getAiRuntimeSettings(memberId: string): Promise<AiRuntimeSettings | null> {
     await this.requireMember(memberId);
     const row = this.ctx.storage.sql
@@ -622,6 +963,17 @@ export class FamilyChat extends DurableObject<Env> {
     return { ...parsed, updatedAt: row.updated_at, apiKeyConfigured: Boolean(parsed.apiKey) };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `updateAiSettings`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `updateAiSettings` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async updateAiSettings(input: { actorId: string; provider: AiProvider; model: string; apiKey?: string | null }): Promise<AiSettings> {
     const actor = await this.requireMember(input.actorId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can update AI settings");
@@ -643,6 +995,17 @@ export class FamilyChat extends DurableObject<Env> {
     return { ...safe, apiKeyConfigured: Boolean(runtime.apiKey) };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listSchedules`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listSchedules` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async listSchedules(input: { actorId: string; from?: number; to?: number }): Promise<Schedule[]> {
     await this.requireMember(input.actorId);
     const from = Number.isFinite(input.from) ? input.from as number : 0;
@@ -663,6 +1026,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map((row) => ({ id: row.id, workspaceId: row.workspace_id, workspaceTitle: row.workspace_title, instruction: row.instruction, runAt: row.run_at, createdBy: row.created_by, createdAt: row.created_at }));
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `createSchedule`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `createSchedule` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async createSchedule(input: { actorId: string; workspaceId: string; instruction: string; runAt: number }): Promise<Schedule> {
     const actor = await this.requireWorkspaceMember(input.actorId, input.workspaceId);
     const instruction = safeText(input.instruction, "Schedule instruction", 1000);
@@ -682,6 +1056,17 @@ export class FamilyChat extends DurableObject<Env> {
     return { id, workspaceId: input.workspaceId, workspaceTitle: workspace?.title, instruction, runAt: input.runAt, createdBy: actor.id, createdAt };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `deleteSchedule`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `deleteSchedule` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async deleteSchedule(input: { actorId: string; scheduleId: string }): Promise<boolean> {
     await this.requireMember(input.actorId);
     const row = this.ctx.storage.sql
@@ -694,6 +1079,17 @@ export class FamilyChat extends DurableObject<Env> {
     return true;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listSkills`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listSkills` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async listSkills(memberId: string): Promise<Skill[]> {
     await this.requireMember(memberId);
     return this.ctx.storage.sql
@@ -704,6 +1100,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map(this.skillFromRow);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `createSkill`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `createSkill` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async createSkill(input: { actorId: string; title: string; description: string }): Promise<Skill> {
     const actor = await this.requireMember(input.actorId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can create skills");
@@ -723,6 +1130,17 @@ export class FamilyChat extends DurableObject<Env> {
     return skill;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listSkillFiles`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listSkillFiles` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async listSkillFiles(input: { actorId: string; skillId: string }): Promise<SkillFile[]> {
     await this.requireMember(input.actorId);
     this.requireSkill(input.skillId);
@@ -732,6 +1150,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map((row) => ({ path: row.path, content: row.content, updatedAt: row.updated_at }));
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `updateSkillFile`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `updateSkillFile` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async updateSkillFile(input: { actorId: string; skillId: string; path: string; content: string }): Promise<SkillFile> {
     const actor = await this.requireMember(input.actorId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can edit skills");
@@ -749,6 +1178,17 @@ export class FamilyChat extends DurableObject<Env> {
     return { path, content: input.content, updatedAt };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `setSkillEnabled`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `setSkillEnabled` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async setSkillEnabled(input: { actorId: string; skillId: string; enabled: boolean }): Promise<Skill> {
     const actor = await this.requireMember(input.actorId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can update skills");
@@ -758,6 +1198,17 @@ export class FamilyChat extends DurableObject<Env> {
     return this.requireSkill(input.skillId);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `trackFollowUp`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `trackFollowUp` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async trackFollowUp(message: ChatMessage): Promise<void> {
     this.ctx.storage.sql.exec(
       "UPDATE proactive_followups SET status = 'resolved' WHERE workspace_id = ? AND status = 'pending' AND trigger_message_id < ?",
@@ -791,6 +1242,17 @@ export class FamilyChat extends DurableObject<Env> {
     await this.setFollowUpAlarmNoLaterThan(dueAt);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `messageNeedsFollowUp`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `messageNeedsFollowUp` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async messageNeedsFollowUp(message: ChatMessage, recentConversation: string): Promise<boolean> {
     if (hasExplicitOpenQuestion(message.text)) return true;
     try {
@@ -805,6 +1267,17 @@ export class FamilyChat extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `deliverDueFollowUps`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `deliverDueFollowUps` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async deliverDueFollowUps(): Promise<void> {
     const due = this.ctx.storage.sql
       .exec<{ id: string; workspace_id: string; trigger_message_id: number; author_name: string; message: string; due_at: number }>(
@@ -840,11 +1313,33 @@ export class FamilyChat extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `setFollowUpAlarmNoLaterThan`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `setFollowUpAlarmNoLaterThan` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async setFollowUpAlarmNoLaterThan(timestamp: number): Promise<void> {
     const current = await this.ctx.storage.getAlarm();
     if (current === null || timestamp < current) await this.ctx.storage.setAlarm(timestamp);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `refreshFollowUpAlarm`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `refreshFollowUpAlarm` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async refreshFollowUpAlarm(): Promise<void> {
     const dueAt = this.ctx.storage.sql
       .exec<{ due_at: number | null }>("SELECT MIN(due_at) AS due_at FROM proactive_followups WHERE status = 'pending'")
@@ -853,12 +1348,34 @@ export class FamilyChat extends DurableObject<Env> {
     else await this.ctx.storage.setAlarm(dueAt);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `requireMember`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `requireMember` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async requireMember(memberId: string): Promise<Member> {
     const member = await this.getMember(memberId);
     if (member === null) throw new Error("Member not found");
     return member;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `requireWorkspaceMember`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `requireWorkspaceMember` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async requireWorkspaceMember(memberId: string, workspaceId: string): Promise<Member> {
     const member = await this.requireMember(memberId);
     const row = this.ctx.storage.sql
@@ -872,6 +1389,17 @@ export class FamilyChat extends DurableObject<Env> {
     return member;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `listAllWorkspaces`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `listAllWorkspaces` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private async listAllWorkspaces(): Promise<Workspace[]> {
     return this.ctx.storage.sql
       .exec<{ id: string; title: string; created_by: string; created_at: number }>(
@@ -881,6 +1409,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map(this.workspaceFromRow);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `recentWorkspaceMessages`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `recentWorkspaceMessages` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private recentWorkspaceMessages(workspaceId: string, limit: number): ChatMessage[] {
     return this.ctx.storage.sql
       .exec<{ id: number; workspace_id: string; author_id: string; author_name: string; kind: ChatMessage["kind"]; text: string; created_at: number }>(
@@ -893,6 +1432,17 @@ export class FamilyChat extends DurableObject<Env> {
       .map(this.messageFromRow);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `insertMessage`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `insertMessage` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private insertMessage(workspaceId: string, authorId: string, authorName: string, kind: ChatMessage["kind"], text: string): ChatMessage {
     const createdAt = now();
     const id = this.ctx.storage.sql
@@ -909,14 +1459,47 @@ export class FamilyChat extends DurableObject<Env> {
     return { id, workspaceId, authorId, authorName, kind, text, createdAt };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `workspaceFromRow`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `workspaceFromRow` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private workspaceFromRow(row: { id: string; title: string; created_by: string; created_at: number }): Workspace {
     return { id: row.id, title: row.title, createdBy: row.created_by, createdAt: row.created_at };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `skillSlugExists`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `skillSlugExists` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private skillSlugExists(slug: string): boolean {
     return this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM skills WHERE slug = ?", slug).one().count > 0;
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `requireSkill`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `requireSkill` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private requireSkill(skillId: string): Skill {
     const row = this.ctx.storage.sql
       .exec<{ id: string; slug: string; title: string; description: string; enabled: number; created_by: string; created_at: number; updated_at: number }>(
@@ -928,10 +1511,32 @@ export class FamilyChat extends DurableObject<Env> {
     return this.skillFromRow(row);
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `skillFromRow`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `skillFromRow` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private skillFromRow(row: { id: string; slug: string; title: string; description: string; enabled: number; created_by: string; created_at: number; updated_at: number }): Skill {
     return { id: row.id, slug: row.slug, title: row.title, description: row.description, enabled: row.enabled === 1, createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at };
   }
 
+  /**
+   * Input:
+   * - See the TypeScript parameters for `messageFromRow`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `messageFromRow` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   private messageFromRow(row: { id: number; workspace_id: string; author_id: string; author_name: string; kind: ChatMessage["kind"]; text: string; created_at: number }): ChatMessage {
     return {
       id: row.id,

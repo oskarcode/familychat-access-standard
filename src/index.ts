@@ -90,6 +90,17 @@ const accessInstructions = (request: Request, env: Env, state: AccessState): Rec
   ],
 });
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `currentAccess`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `currentAccess` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 async function currentAccess(request: Request, env: Env): Promise<Authed | AccessState> {
   const access = await accessIdentity(request, env);
   if (access.status !== "ok" && access.status !== "local") return access;
@@ -98,6 +109,17 @@ async function currentAccess(request: Request, env: Env): Promise<Authed | Acces
   return { member, family, access };
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `currentAppSession`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `currentAppSession` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 async function currentAppSession(request: Request, env: Env): Promise<Authed | null> {
   if (!env.SESSION_SECRET) return null;
   const token = cookieValue(request, SESSION_COOKIE);
@@ -109,6 +131,17 @@ async function currentAppSession(request: Request, env: Env): Promise<Authed | n
   return member === null ? null : { member, family };
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `requireAuth`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `requireAuth` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 async function requireAuth(request: Request, env: Env): Promise<Authed | Response> {
   if (authMode(env) === "access") {
     const current = await currentAccess(request, env);
@@ -168,6 +201,17 @@ const popupResult = (origin: string, ok: boolean, message: string): Response => 
   });
 };
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `generateAgentReply`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `generateAgentReply` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: string, workspaceId: string): Promise<string> {
   const transcript = await family.recentTranscript({ actorId, workspaceId, limit: 24 });
   const [connectors, skills, schedules] = await Promise.all([
@@ -226,6 +270,17 @@ async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: stri
     : `I’m here with the family, but I could not reach Workers AI model ${model} from this deployment. Try GLM-4.7 Flash or Llama 3.1 8B, configure an AI Gateway with unified billing, or switch to Claude with your own Anthropic API key.${failureDetail ? ` Details: ${failureDetail}` : ""}`;
 }
 
+/**
+ * Input:
+ * - See the TypeScript parameters for `handleApi`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+ *
+ * Output:
+ * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+ *
+ * What this function does:
+ * - Owns the `handleApi` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+ * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+ */
 async function handleApi(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const family = familyStub(env);
@@ -397,6 +452,17 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
 }
 
 export default {
+  /**
+   * Input:
+   * - See the TypeScript parameters for `fetch`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
+   *
+   * Output:
+   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
+   *
+   * What this function does:
+   * - Owns the `fetch` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
+   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
+   */
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     try {
