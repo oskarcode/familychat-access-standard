@@ -1,7 +1,7 @@
 import { accessIdentity, type AccessState } from "./access";
 import { hashPassword, signSession, verifySession } from "./crypto";
 import { FamilyChat } from "./family-chat";
-import type { ChatMessage, Env, FamilyChat as FamilyChatRpc, Member, Role } from "./types";
+import type { AiProvider, ChatMessage, Env, FamilyChat as FamilyChatRpc, Member, Role } from "./types";
 import { appHtml } from "./ui";
 
 export { FamilyChat };
@@ -28,6 +28,17 @@ const requestJson = async (request: Request): Promise<Record<string, unknown>> =
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Expected a JSON object");
   return value as Record<string, unknown>;
 };
+
+const AI_MODELS = [
+  { provider: "workers-ai", id: "@cf/meta/llama-3.1-8b-instruct", label: "Llama 3.1 8B Instruct", description: "Fast default open-weight model on Workers AI." },
+  { provider: "workers-ai", id: "@cf/meta/llama-3.1-70b-instruct", label: "Llama 3.1 70B Instruct", description: "Larger open-weight Llama model where available." },
+  { provider: "workers-ai", id: "@cf/mistral/mistral-7b-instruct-v0.2", label: "Mistral 7B Instruct", description: "Small efficient open-weight model." },
+  { provider: "workers-ai", id: "@cf/deepseek-ai/deepseek-r1-distill-qwen-32b", label: "DeepSeek R1 Distill Qwen 32B", description: "Reasoning-oriented open-weight model where available." },
+  { provider: "anthropic", id: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku", description: "Bring your own Anthropic API key." },
+  { provider: "anthropic", id: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet", description: "Bring your own Anthropic API key." },
+] as const;
+
+const defaultAiModel = (env: Env): string => env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct";
 
 const textField = (body: Record<string, unknown>, key: string): string => {
   const value = body[key];
@@ -125,15 +136,33 @@ async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: stri
     : `Configured MCP connectors (not invoked automatically yet): ${connectors.map((connector) => `${connector.label} (${connector.status})`).join(", ")}.`;
   const prompt = `You are Family Agent, a warm resident AI participant in a private Cloudflare Access-protected family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty.\n\n${connectorNote}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nReply as Family Agent.`;
 
+  const settings = await family.getAiRuntimeSettings(actorId);
+  const provider = settings?.provider ?? "workers-ai";
+  const model = settings?.model ?? defaultAiModel(env);
   try {
-    const options = env.AI_GATEWAY_ID?.trim() ? { gateway: { id: env.AI_GATEWAY_ID.trim(), skipCache: true } } : undefined;
-    const response = await env.AI.run(env.AI_MODEL || "@cf/meta/llama-3.1-8b-instruct", { prompt }, options as never) as { response?: string; result?: { response?: string } };
-    const text = response.response ?? response.result?.response;
-    if (typeof text === "string" && text.trim().length > 0) return text.trim();
+    if (provider === "anthropic") {
+      if (!settings?.apiKey) return "I’m ready to use Claude, but an owner/admin still needs to save an Anthropic API key in Connections → Agent model.";
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-api-key": settings.apiKey, "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({ model, max_tokens: 800, messages: [{ role: "user", content: prompt }] }),
+      });
+      const data = await response.json() as { content?: Array<{ type?: string; text?: string }>; error?: { message?: string } };
+      if (!response.ok) throw new Error(data.error?.message || `Anthropic request failed (${response.status})`);
+      const text = data.content?.flatMap((part) => part.type === "text" && part.text ? [part.text] : []).join("\n");
+      if (text && text.trim().length > 0) return text.trim();
+    } else {
+      const options = env.AI_GATEWAY_ID?.trim() ? { gateway: { id: env.AI_GATEWAY_ID.trim(), skipCache: true } } : undefined;
+      const response = await env.AI.run(model, { prompt }, options as never) as { response?: string; result?: { response?: string } };
+      const text = response.response ?? response.result?.response;
+      if (typeof text === "string" && text.trim().length > 0) return text.trim();
+    }
   } catch (error) {
-    console.error(JSON.stringify({ message: "Workers AI request failed", error: error instanceof Error ? error.message : String(error) }));
+    console.error(JSON.stringify({ message: "AI request failed", provider, model, error: error instanceof Error ? error.message : String(error) }));
   }
-  return "I’m here with the family, but I could not reach Workers AI from this deployment yet. Check the account’s Workers AI/model access or choose another model in the Worker variables.";
+  return provider === "anthropic"
+    ? "I’m here with the family, but I could not reach Anthropic with the saved Claude settings. Check the API key/model in Connections → Agent model."
+    : "I’m here with the family, but I could not reach Workers AI from this deployment yet. Try another Workers AI model in Connections → Agent model, or switch to Claude with your own Anthropic API key.";
 }
 
 async function handleApi(request: Request, env: Env): Promise<Response> {
@@ -203,6 +232,26 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     const body = await requestJson(request);
     const role: Role = optionalTextField(body, "role") === "admin" ? "admin" : "member";
     return json(await authed.family.createInvite({ actorId: authed.member.id, role }), 201);
+  }
+
+  if (url.pathname === "/api/ai/settings" && request.method === "GET") {
+    const settings = await authed.family.getAiSettings(authed.member.id);
+    return json({
+      models: AI_MODELS,
+      settings: settings ?? { provider: "workers-ai", model: defaultAiModel(env), apiKeyConfigured: false },
+    });
+  }
+  if (url.pathname === "/api/ai/settings" && request.method === "POST") {
+    if (authed.member.role !== "owner" && authed.member.role !== "admin") return json({ error: "Only owners and admins can update AI settings" }, 403);
+    const body = await requestJson(request);
+    const provider = optionalTextField(body, "provider") === "anthropic" ? "anthropic" : "workers-ai";
+    const settings = await authed.family.updateAiSettings({
+      actorId: authed.member.id,
+      provider: provider as AiProvider,
+      model: textField(body, "model"),
+      apiKey: optionalTextField(body, "apiKey"),
+    });
+    return json({ settings });
   }
 
   if (url.pathname === "/api/workspaces" && request.method === "GET") return json({ workspaces: await authed.family.listWorkspaces(authed.member.id) });

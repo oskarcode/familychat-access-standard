@@ -44,6 +44,19 @@ export type Connector = {
   readonly lastError: string | null;
 };
 
+export type AiProvider = "workers-ai" | "anthropic";
+
+export type AiSettings = {
+  readonly provider: AiProvider;
+  readonly model: string;
+  readonly apiKeyConfigured?: boolean;
+  readonly updatedAt?: number;
+};
+
+export type AiRuntimeSettings = AiSettings & {
+  readonly apiKey?: string;
+};
+
 export type SetupStatus = {
   readonly configured: boolean;
   readonly memberCount: number;
@@ -81,4 +94,7 @@ export interface FamilyChat {
   refreshConnector(input: { actorId: string; connectorId: string; publicOrigin: string }): Promise<Connector>;
   completeConnectorOAuth(input: { connectorId: string; callbackUrl: string; publicOrigin: string }): Promise<Connector>;
   callConnectorTool(input: { actorId: string; connectorId: string; publicOrigin: string; toolName: string; args: Record<string, unknown> }): Promise<unknown>;
+  getAiSettings(memberId: string): Promise<AiSettings | null>;
+  getAiRuntimeSettings(memberId: string): Promise<AiRuntimeSettings | null>;
+  updateAiSettings(input: { actorId: string; provider: AiProvider; model: string; apiKey?: string | null }): Promise<AiSettings>;
 }

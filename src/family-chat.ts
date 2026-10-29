@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { randomCode } from "./crypto";
 import { callMcpTool, completeMcpOAuth, connectAndListTools, type McpOAuthStateAccess, type StoredMcpConnector } from "./mcp";
-import type { ChatMessage, Connector, Env, McpToolSummary, Member, Role, SetupStatus, Workspace } from "./types";
+import type { AiProvider, AiRuntimeSettings, AiSettings, ChatMessage, Connector, Env, McpToolSummary, Member, Role, SetupStatus, Workspace } from "./types";
 
 const now = (): number => Date.now();
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -73,6 +73,12 @@ export class FamilyChat extends DurableObject<Env> {
         tool_cache TEXT NOT NULL DEFAULT '[]',
         authorization_url TEXT,
         last_error TEXT
+      );
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_by TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS messages_workspace_created ON messages(workspace_id, created_at, id);
     `);
@@ -510,6 +516,45 @@ export class FamilyChat extends DurableObject<Env> {
         );
       },
     };
+  }
+
+  async getAiSettings(memberId: string): Promise<AiSettings | null> {
+    await this.requireMember(memberId);
+    const runtime = await this.getAiRuntimeSettings(memberId);
+    if (runtime === null) return null;
+    const { apiKey: _apiKey, ...safe } = runtime;
+    return { ...safe, apiKeyConfigured: Boolean(runtime.apiKey) };
+  }
+
+  async getAiRuntimeSettings(memberId: string): Promise<AiRuntimeSettings | null> {
+    await this.requireMember(memberId);
+    const row = this.ctx.storage.sql
+      .exec<{ value: string; updated_at: number }>("SELECT value, updated_at FROM settings WHERE key = 'ai' AND value <> ''")
+      .toArray()[0];
+    if (row === undefined) return null;
+    const parsed = JSON.parse(row.value) as AiRuntimeSettings;
+    return { ...parsed, updatedAt: row.updated_at, apiKeyConfigured: Boolean(parsed.apiKey) };
+  }
+
+  async updateAiSettings(input: { actorId: string; provider: AiProvider; model: string; apiKey?: string | null }): Promise<AiSettings> {
+    const actor = await this.requireMember(input.actorId);
+    if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can update AI settings");
+    const provider = input.provider === "anthropic" ? "anthropic" : "workers-ai";
+    const model = safeText(input.model, "Model", 120);
+    const previous = await this.getAiRuntimeSettings(input.actorId);
+    const apiKey = input.apiKey && input.apiKey.trim().length > 0 ? input.apiKey.trim() : previous?.apiKey;
+    const runtime: AiRuntimeSettings = provider === "anthropic"
+      ? { provider, model, apiKey, updatedAt: now() }
+      : { provider, model, updatedAt: now() };
+    this.ctx.storage.sql.exec(
+      `INSERT INTO settings (key, value, updated_by, updated_at) VALUES ('ai', ?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at`,
+      JSON.stringify(runtime),
+      actor.id,
+      runtime.updatedAt,
+    );
+    const { apiKey: _apiKey, ...safe } = runtime;
+    return { ...safe, apiKeyConfigured: Boolean(runtime.apiKey) };
   }
 
   private async requireMember(memberId: string): Promise<Member> {
