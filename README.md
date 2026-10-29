@@ -39,7 +39,7 @@ For the Cloudflare Access-first flow, use the custom wizard after deploy:
 https://familychat-deploy-wizard.oskarmansanqu.workers.dev
 ```
 
-The wizard creates the Cloudflare Access application/policy and writes these Worker secrets for you:
+The wizard creates the Cloudflare Access application/policy and writes these Worker secrets for you. These names must not also be present as plain Wrangler vars:
 
 ```env
 ACCESS_ISSUER=https://your-team.cloudflareaccess.com
