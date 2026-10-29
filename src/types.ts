@@ -98,7 +98,7 @@ export interface FamilyChat {
   ensureAccessMember(input: { id: string; name: string; email: string }): Promise<Member>;
   getMember(memberId: string): Promise<Member | null>;
   listMembers(): Promise<Member[]>;
-  createInvite(input: { actorId: string; role: Role }): Promise<{ code: string; role: Role; expiresAt: number }>;
+  createInvite(input: { actorId: string; workspaceId: string; role: Role }): Promise<{ code: string; role: Role; workspaceId: string; expiresAt: number }>;
   joinWithInvite(input: { code: string; name: string; email?: string | null; passwordHash?: string | null }): Promise<Member>;
   listWorkspaces(memberId: string): Promise<Workspace[]>;
   createWorkspace(input: { actorId: string; title: string }): Promise<Workspace>;

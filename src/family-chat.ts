@@ -38,7 +38,8 @@ export class FamilyChat extends DurableObject<Env> {
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL,
-        used_by TEXT
+        used_by TEXT,
+        workspace_id TEXT
       );
       CREATE TABLE IF NOT EXISTS workspaces (
         id TEXT PRIMARY KEY,
@@ -100,6 +101,7 @@ export class FamilyChat extends DurableObject<Env> {
       CREATE INDEX IF NOT EXISTS messages_workspace_created ON messages(workspace_id, created_at, id);
     `);
     this.addColumnIfMissing("members", "password_hash", "TEXT");
+    this.addColumnIfMissing("invites", "workspace_id", "TEXT");
     this.addColumnIfMissing("connectors", "status", "TEXT NOT NULL DEFAULT 'untested'");
     this.addColumnIfMissing("connectors", "oauth_state", "TEXT");
     this.addColumnIfMissing("connectors", "tool_cache", "TEXT NOT NULL DEFAULT '[]'");
@@ -222,29 +224,30 @@ export class FamilyChat extends DurableObject<Env> {
       .map((row) => ({ id: row.id, name: row.name, email: row.email, role: row.role, createdAt: row.created_at }));
   }
 
-  async createInvite(input: { actorId: string; role: Role }): Promise<{ code: string; role: Role; expiresAt: number }> {
-    const actor = await this.requireMember(input.actorId);
+  async createInvite(input: { actorId: string; workspaceId: string; role: Role }): Promise<{ code: string; role: Role; workspaceId: string; expiresAt: number }> {
+    const actor = await this.requireWorkspaceMember(input.actorId, input.workspaceId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can invite members");
     const code = randomCode(10);
     const role = normalizeRole(input.role);
     const createdAt = now();
     const expiresAt = createdAt + INVITE_TTL_MS;
     this.ctx.storage.sql.exec(
-      "INSERT INTO invites (code, role, created_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO invites (code, role, created_by, created_at, expires_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?)",
       code,
       role,
       actor.id,
       createdAt,
       expiresAt,
+      input.workspaceId,
     );
-    return { code, role, expiresAt };
+    return { code, role, workspaceId: input.workspaceId, expiresAt };
   }
 
   async joinWithInvite(input: { code: string; name: string; email?: string | null; passwordHash?: string | null }): Promise<Member> {
     const code = safeText(input.code, "Invite code", 200);
     const invite = this.ctx.storage.sql
-      .exec<{ code: string; role: Role; expires_at: number; used_by: string | null }>(
-        "SELECT code, role, expires_at, used_by FROM invites WHERE code = ?",
+      .exec<{ code: string; role: Role; expires_at: number; used_by: string | null; workspace_id: string | null }>(
+        "SELECT code, role, expires_at, used_by, workspace_id FROM invites WHERE code = ?",
         code,
       )
       .toArray()[0];
@@ -266,14 +269,24 @@ export class FamilyChat extends DurableObject<Env> {
       member.createdAt,
     );
     this.ctx.storage.sql.exec("UPDATE invites SET used_by = ? WHERE code = ?", member.id, code);
-    for (const workspace of await this.listAllWorkspaces()) {
+    if (invite.workspace_id) {
       this.ctx.storage.sql.exec(
         "INSERT OR IGNORE INTO workspace_members (workspace_id, member_id, role, created_at) VALUES (?, ?, ?, ?)",
-        workspace.id,
+        invite.workspace_id,
         member.id,
         "member",
         now(),
       );
+    } else {
+      for (const workspace of await this.listAllWorkspaces()) {
+        this.ctx.storage.sql.exec(
+          "INSERT OR IGNORE INTO workspace_members (workspace_id, member_id, role, created_at) VALUES (?, ?, ?, ?)",
+          workspace.id,
+          member.id,
+          "member",
+          now(),
+        );
+      }
     }
     return member;
   }

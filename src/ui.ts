@@ -64,7 +64,7 @@ export const appHtml = String.raw`<!doctype html>
     #composer + .row { padding: 0 1.25rem 1rem; }
     #chatError { padding: 0 1.25rem 1rem; }
     #members > div { display: grid; gap: .125rem; padding: .35rem 0; }
-    #inviteResult { overflow-wrap: anywhere; }
+    #roomInviteResult { overflow-wrap: anywhere; flex-basis:100%; text-align:right; }
     #connectors .card { box-shadow: var(--shadow-sm); }
     code { background: var(--surface-muted); padding: .15rem .35rem; border-radius: .4rem; }
     pre { overflow: auto; max-height: 12rem; }
@@ -183,11 +183,10 @@ export const appHtml = String.raw`<!doctype html>
         <input id="newWorkspace" class="compact-input" placeholder="Room name" />
         <nav class="sidebar-section" aria-labelledby="roomsHeading"><div class="sidebar-label-row"><h2 id="roomsHeading">Rooms</h2><span id="roomCount">0</span></div><div id="workspaces" class="nav-list"></div></nav>
         <section class="sidebar-section"><div class="sidebar-label-row"><h2>Family</h2></div><div id="members" class="people-list-lite"></div></section>
-        <section class="sidebar-section"><div class="sidebar-label-row"><h2>Invites</h2></div><button id="inviteButton" class="secondary small-button">Create invite</button><p id="inviteResult" class="muted"></p></section>
         <footer class="session-sidebar-footer-lite"><small id="signedInLabel">Signed in</small><button id="logoutButton" class="secondary small-button">Logout</button></footer>
       </aside>
       <section class="card stack conversation-view-lite">
-        <header class="conversation-header-lite"><div><small>Current room</small><h2 id="roomTitle">Family room</h2></div><div class="room-actions"><p class="muted">Send to everyone, or ask the resident Family Agent.</p><button id="roomInviteButton" class="secondary small-button" type="button">Invite family</button></div></header>
+        <header class="conversation-header-lite"><div><small>Current room</small><h2 id="roomTitle">Family room</h2></div><div class="room-actions"><p class="muted">Send to everyone, or ask the resident Family Agent.</p><button id="roomInviteButton" class="secondary small-button" type="button">Invite to this room</button><p id="roomInviteResult" class="muted"></p></div></header>
         <div id="messages" class="messages"></div>
         <form class="prompt-bar" id="composerForm"><textarea id="composer" placeholder="Start a new message…"></textarea><div class="composer-footer"><span class="composer-status" id="modelLabel">Workers AI · open-weight model</span><div class="composer-actions"><button id="sendFamily" class="send-family-button" type="button">Send to Family</button><button id="sendAgent" class="ask-agent-button agent" type="button">Ask Agent</button></div></div></form>
         <p id="chatError" class="error"></p>
@@ -219,8 +218,7 @@ export const appHtml = String.raw`<!doctype html>
     $('setupButton').onclick = async () => { try { await api('/api/setup', { method:'POST', body: JSON.stringify({ name: $('setupName').value, email: $('setupEmail').value, password: $('setupPassword').value, token: $('setupToken').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
     $('loginButton').onclick = async () => { try { await api('/api/login', { method:'POST', body: JSON.stringify({ email: $('loginEmail').value, password: $('loginPassword').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
     $('joinButton').onclick = async () => { try { await api('/api/join', { method:'POST', body: JSON.stringify({ name: $('joinName').value, email: $('joinEmail').value, password: $('joinPassword').value, code: $('joinCode').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
-    async function createInviteLink() { const invite = await api('/api/invites', { method:'POST', body: JSON.stringify({ role:'member' }) }); const link = invite.url || (location.origin + '/?invite=' + encodeURIComponent(invite.code)); $('inviteResult').innerHTML = 'Invite link: <code>' + esc(link) + '</code><br><span class="muted">In Access mode, also make sure this email is allowed by the Cloudflare Access policy.</span>'; try { await navigator.clipboard?.writeText(link); $('inviteResult').innerHTML += '<br><span class="muted">Copied to clipboard.</span>'; } catch {} }
-    $('inviteButton').onclick = () => createInviteLink().catch((e) => $('inviteResult').innerHTML = '<span class="error">' + esc(e.message) + '</span>');
+    async function createInviteLink() { if (!state.workspaceId) throw new Error('Choose or create a room first.'); const invite = await api('/api/invites', { method:'POST', body: JSON.stringify({ role:'member', workspaceId: state.workspaceId }) }); const link = invite.url || (location.origin + '/?invite=' + encodeURIComponent(invite.code) + '&workspace=' + encodeURIComponent(state.workspaceId)); $('roomInviteResult').innerHTML = 'Invite link: <code>' + esc(link) + '</code><br><span class="muted">In Access mode, also make sure this email is allowed by the Cloudflare Access policy.</span>'; try { await navigator.clipboard?.writeText(link); $('roomInviteResult').innerHTML += '<br><span class="muted">Copied to clipboard.</span>'; } catch {} }
     $('roomInviteButton').onclick = () => createInviteLink().catch((e) => $('chatError').textContent = e.message);
     $('logoutButton').onclick = async () => { await api('/api/logout', { method:'POST', body:'{}' }); location.reload(); };
     async function createRoom() { const provided = $('newWorkspace').value.trim(); const title = provided || 'New room ' + (state.workspaces.length + 1); $('chatError').textContent = ''; try { const workspace = await api('/api/workspaces', { method:'POST', body: JSON.stringify({ title }) }); state.workspaceId = workspace.id; $('newWorkspace').value = ''; await refreshAll(); } catch (e) { $('chatError').textContent = e.message; } }
