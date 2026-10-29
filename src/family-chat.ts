@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { randomCode } from "./crypto";
 import { callMcpTool, completeMcpOAuth, connectAndListTools, type McpOAuthStateAccess, type StoredMcpConnector } from "./mcp";
-import type { AiProvider, AiRuntimeSettings, AiSettings, ChatMessage, Connector, Env, McpToolSummary, Member, Role, SetupStatus, Skill, SkillFile, Workspace } from "./types";
+import type { AiProvider, AiRuntimeSettings, AiSettings, ChatMessage, Connector, Env, McpToolSummary, Member, Role, Schedule, SetupStatus, Skill, SkillFile, Workspace } from "./types";
 
 const now = (): number => Date.now();
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -98,7 +98,16 @@ export class FamilyChat extends DurableObject<Env> {
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (skill_id, path)
       );
+      CREATE TABLE IF NOT EXISTS schedules (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        run_at INTEGER NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS messages_workspace_created ON messages(workspace_id, created_at, id);
+      CREATE INDEX IF NOT EXISTS schedules_workspace_run ON schedules(workspace_id, run_at);
     `);
     this.addColumnIfMissing("members", "password_hash", "TEXT");
     this.addColumnIfMissing("invites", "workspace_id", "TEXT");
@@ -585,6 +594,57 @@ export class FamilyChat extends DurableObject<Env> {
     );
     const { apiKey: _apiKey, ...safe } = runtime;
     return { ...safe, apiKeyConfigured: Boolean(runtime.apiKey) };
+  }
+
+  async listSchedules(input: { actorId: string; from?: number; to?: number }): Promise<Schedule[]> {
+    await this.requireMember(input.actorId);
+    const from = Number.isFinite(input.from) ? input.from as number : 0;
+    const to = Number.isFinite(input.to) ? input.to as number : Number.MAX_SAFE_INTEGER;
+    return this.ctx.storage.sql
+      .exec<{ id: string; workspace_id: string; workspace_title: string; instruction: string; run_at: number; created_by: string; created_at: number }>(
+        `SELECT s.id, s.workspace_id, w.title AS workspace_title, s.instruction, s.run_at, s.created_by, s.created_at
+         FROM schedules s
+         JOIN workspace_members wm ON wm.workspace_id = s.workspace_id
+         JOIN workspaces w ON w.id = s.workspace_id
+         WHERE wm.member_id = ? AND s.run_at >= ? AND s.run_at <= ?
+         ORDER BY s.run_at ASC LIMIT 500`,
+        input.actorId,
+        from,
+        to,
+      )
+      .toArray()
+      .map((row) => ({ id: row.id, workspaceId: row.workspace_id, workspaceTitle: row.workspace_title, instruction: row.instruction, runAt: row.run_at, createdBy: row.created_by, createdAt: row.created_at }));
+  }
+
+  async createSchedule(input: { actorId: string; workspaceId: string; instruction: string; runAt: number }): Promise<Schedule> {
+    const actor = await this.requireWorkspaceMember(input.actorId, input.workspaceId);
+    const instruction = safeText(input.instruction, "Schedule instruction", 1000);
+    if (!Number.isFinite(input.runAt) || input.runAt <= now() - 60_000) throw new Error("Schedule time must be in the future");
+    const createdAt = now();
+    const id = crypto.randomUUID();
+    this.ctx.storage.sql.exec(
+      "INSERT INTO schedules (id, workspace_id, instruction, run_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      id,
+      input.workspaceId,
+      instruction,
+      input.runAt,
+      actor.id,
+      createdAt,
+    );
+    const workspace = this.ctx.storage.sql.exec<{ title: string }>("SELECT title FROM workspaces WHERE id = ?", input.workspaceId).toArray()[0];
+    return { id, workspaceId: input.workspaceId, workspaceTitle: workspace?.title, instruction, runAt: input.runAt, createdBy: actor.id, createdAt };
+  }
+
+  async deleteSchedule(input: { actorId: string; scheduleId: string }): Promise<boolean> {
+    await this.requireMember(input.actorId);
+    const row = this.ctx.storage.sql
+      .exec<{ workspace_id: string }>("SELECT workspace_id FROM schedules WHERE id = ?", input.scheduleId)
+      .toArray()[0];
+    if (row === undefined) return false;
+    const actor = await this.requireWorkspaceMember(input.actorId, row.workspace_id);
+    if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can remove schedules");
+    this.ctx.storage.sql.exec("DELETE FROM schedules WHERE id = ?", input.scheduleId);
+    return true;
   }
 
   async listSkills(memberId: string): Promise<Skill[]> {

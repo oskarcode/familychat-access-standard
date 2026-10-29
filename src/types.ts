@@ -74,6 +74,16 @@ export type SkillFile = {
   readonly updatedAt: number;
 };
 
+export type Schedule = {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly workspaceTitle?: string;
+  readonly instruction: string;
+  readonly runAt: number;
+  readonly createdBy: string;
+  readonly createdAt: number;
+};
+
 export type SetupStatus = {
   readonly configured: boolean;
   readonly memberCount: number;
@@ -119,4 +129,7 @@ export interface FamilyChat {
   listSkillFiles(input: { actorId: string; skillId: string }): Promise<SkillFile[]>;
   updateSkillFile(input: { actorId: string; skillId: string; path: string; content: string }): Promise<SkillFile>;
   setSkillEnabled(input: { actorId: string; skillId: string; enabled: boolean }): Promise<Skill>;
+  listSchedules(input: { actorId: string; from?: number; to?: number }): Promise<Schedule[]>;
+  createSchedule(input: { actorId: string; workspaceId: string; instruction: string; runAt: number }): Promise<Schedule>;
+  deleteSchedule(input: { actorId: string; scheduleId: string }): Promise<boolean>;
 }

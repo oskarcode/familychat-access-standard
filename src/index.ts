@@ -170,7 +170,11 @@ const popupResult = (origin: string, ok: boolean, message: string): Response => 
 
 async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: string, workspaceId: string): Promise<string> {
   const transcript = await family.recentTranscript({ actorId, workspaceId, limit: 24 });
-  const [connectors, skills] = await Promise.all([family.listConnectors(actorId), family.listSkills(actorId)]);
+  const [connectors, skills, schedules] = await Promise.all([
+    family.listConnectors(actorId),
+    family.listSkills(actorId),
+    family.listSchedules({ actorId, from: Date.now(), to: Date.now() + 14 * 24 * 60 * 60 * 1000 }),
+  ]);
   const connectorNote = connectors.length === 0
     ? "No MCP connectors are configured yet."
     : `Configured MCP connectors (not invoked automatically yet): ${connectors.map((connector) => `${connector.label} (${connector.status})`).join(", ")}.`;
@@ -178,7 +182,10 @@ async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: stri
   const skillNote = enabledSkills.length === 0
     ? "No family skills are enabled yet."
     : `Enabled family skills: ${enabledSkills.map((skill) => `${skill.title} (${skill.slug}): ${skill.description}`).join("; ")}.`;
-  const system = `You are Family Agent, a warm resident AI participant in a private Cloudflare Access-protected family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty. ${connectorNote} ${skillNote}`;
+  const scheduleNote = schedules.length === 0
+    ? "No upcoming family schedules are saved."
+    : `Upcoming family schedules: ${schedules.slice(0, 12).map((schedule) => `${new Date(schedule.runAt).toISOString()} ${schedule.workspaceTitle ?? "Room"}: ${schedule.instruction}`).join("; ")}. If asked to create or change a schedule, explain that this standard version currently saves schedules from Settings → Calendar.`;
+  const system = `You are Family Agent, a warm resident AI participant in a private Cloudflare Access-protected family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty. ${connectorNote} ${skillNote} ${scheduleNote}`;
   const prompt = `${system}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nReply as Family Agent.`;
   const messages = transcriptMessages(transcript, system);
 
@@ -289,6 +296,18 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     const invite = await authed.family.createInvite({ actorId: authed.member.id, workspaceId, role });
     return json({ ...invite, url: `${publicOrigin(request)}/?invite=${encodeURIComponent(invite.code)}&workspace=${encodeURIComponent(invite.workspaceId)}` }, 201);
   }
+
+  if (url.pathname === "/api/schedules" && request.method === "GET") {
+    const from = Number(url.searchParams.get("from") ?? Date.now() - 24 * 60 * 60 * 1000);
+    const to = Number(url.searchParams.get("to") ?? Date.now() + 60 * 24 * 60 * 60 * 1000);
+    return json({ schedules: await authed.family.listSchedules({ actorId: authed.member.id, from, to }) });
+  }
+  if (url.pathname === "/api/schedules" && request.method === "POST") {
+    const body = await requestJson(request);
+    return json(await authed.family.createSchedule({ actorId: authed.member.id, workspaceId: textField(body, "workspaceId"), instruction: textField(body, "instruction"), runAt: Number(body.runAt) }), 201);
+  }
+  const scheduleMatch = /^\/api\/schedules\/([^/]+)\/?$/u.exec(url.pathname);
+  if (scheduleMatch !== null && request.method === "DELETE") return json({ deleted: await authed.family.deleteSchedule({ actorId: authed.member.id, scheduleId: decodeURIComponent(scheduleMatch[1]) }) });
 
   if (url.pathname === "/api/ai/settings" && request.method === "GET") {
     const settings = await authed.family.getAiSettings(authed.member.id);
