@@ -57,6 +57,23 @@ export type AiRuntimeSettings = AiSettings & {
   readonly apiKey?: string;
 };
 
+export type Skill = {
+  readonly id: string;
+  readonly slug: string;
+  readonly title: string;
+  readonly description: string;
+  readonly enabled: boolean;
+  readonly createdBy: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+};
+
+export type SkillFile = {
+  readonly path: string;
+  readonly content: string;
+  readonly updatedAt: number;
+};
+
 export type SetupStatus = {
   readonly configured: boolean;
   readonly memberCount: number;
@@ -97,4 +114,9 @@ export interface FamilyChat {
   getAiSettings(memberId: string): Promise<AiSettings | null>;
   getAiRuntimeSettings(memberId: string): Promise<AiRuntimeSettings | null>;
   updateAiSettings(input: { actorId: string; provider: AiProvider; model: string; apiKey?: string | null }): Promise<AiSettings>;
+  listSkills(memberId: string): Promise<Skill[]>;
+  createSkill(input: { actorId: string; title: string; description: string }): Promise<Skill>;
+  listSkillFiles(input: { actorId: string; skillId: string }): Promise<SkillFile[]>;
+  updateSkillFile(input: { actorId: string; skillId: string; path: string; content: string }): Promise<SkillFile>;
+  setSkillEnabled(input: { actorId: string; skillId: string; enabled: boolean }): Promise<Skill>;
 }

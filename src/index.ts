@@ -170,11 +170,15 @@ const popupResult = (origin: string, ok: boolean, message: string): Response => 
 
 async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: string, workspaceId: string): Promise<string> {
   const transcript = await family.recentTranscript({ actorId, workspaceId, limit: 24 });
-  const connectors = await family.listConnectors(actorId);
+  const [connectors, skills] = await Promise.all([family.listConnectors(actorId), family.listSkills(actorId)]);
   const connectorNote = connectors.length === 0
     ? "No MCP connectors are configured yet."
     : `Configured MCP connectors (not invoked automatically yet): ${connectors.map((connector) => `${connector.label} (${connector.status})`).join(", ")}.`;
-  const system = `You are Family Agent, a warm resident AI participant in a private Cloudflare Access-protected family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty. ${connectorNote}`;
+  const enabledSkills = skills.filter((skill) => skill.enabled);
+  const skillNote = enabledSkills.length === 0
+    ? "No family skills are enabled yet."
+    : `Enabled family skills: ${enabledSkills.map((skill) => `${skill.title} (${skill.slug}): ${skill.description}`).join("; ")}.`;
+  const system = `You are Family Agent, a warm resident AI participant in a private Cloudflare Access-protected family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty. ${connectorNote} ${skillNote}`;
   const prompt = `${system}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nReply as Family Agent.`;
   const messages = transcriptMessages(transcript, system);
 
@@ -328,6 +332,24 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
       messages.push(await authed.family.appendAgentMessage({ workspaceId: workspaceMessages[1], text: reply }));
     }
     return json({ messages }, 201);
+  }
+
+  if (url.pathname === "/api/skills" && request.method === "GET") return json({ skills: await authed.family.listSkills(authed.member.id) });
+  if (url.pathname === "/api/skills" && request.method === "POST") {
+    if (authed.member.role !== "owner" && authed.member.role !== "admin") return json({ error: "Only owners and admins can create skills" }, 403);
+    const body = await requestJson(request);
+    return json(await authed.family.createSkill({ actorId: authed.member.id, title: textField(body, "title"), description: textField(body, "description") }), 201);
+  }
+  const skillFiles = /^\/api\/skills\/([^/]+)\/files\/?$/u.exec(url.pathname);
+  if (skillFiles !== null && request.method === "GET") return json({ files: await authed.family.listSkillFiles({ actorId: authed.member.id, skillId: skillFiles[1] }) });
+  if (skillFiles !== null && request.method === "PUT") {
+    const body = await requestJson(request);
+    return json(await authed.family.updateSkillFile({ actorId: authed.member.id, skillId: skillFiles[1], path: optionalTextField(body, "path") || "SKILL.md", content: textField(body, "content") }));
+  }
+  const skillEnable = /^\/api\/skills\/([^/]+)\/enabled\/?$/u.exec(url.pathname);
+  if (skillEnable !== null && request.method === "POST") {
+    const body = await requestJson(request);
+    return json(await authed.family.setSkillEnabled({ actorId: authed.member.id, skillId: skillEnable[1], enabled: body.enabled !== false }));
   }
 
   if (url.pathname === "/api/connectors" && request.method === "GET") return json({ connectors: await authed.family.listConnectors(authed.member.id) });

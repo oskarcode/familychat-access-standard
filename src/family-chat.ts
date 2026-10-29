@@ -1,7 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import { randomCode } from "./crypto";
 import { callMcpTool, completeMcpOAuth, connectAndListTools, type McpOAuthStateAccess, type StoredMcpConnector } from "./mcp";
-import type { AiProvider, AiRuntimeSettings, AiSettings, ChatMessage, Connector, Env, McpToolSummary, Member, Role, SetupStatus, Workspace } from "./types";
+import type { AiProvider, AiRuntimeSettings, AiSettings, ChatMessage, Connector, Env, McpToolSummary, Member, Role, SetupStatus, Skill, SkillFile, Workspace } from "./types";
 
 const now = (): number => Date.now();
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -79,6 +79,23 @@ export class FamilyChat extends DurableObject<Env> {
         value TEXT NOT NULL,
         updated_by TEXT NOT NULL,
         updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS skills (
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS skill_files (
+        skill_id TEXT NOT NULL,
+        path TEXT NOT NULL,
+        content TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (skill_id, path)
       );
       CREATE INDEX IF NOT EXISTS messages_workspace_created ON messages(workspace_id, created_at, id);
     `);
@@ -557,6 +574,70 @@ export class FamilyChat extends DurableObject<Env> {
     return { ...safe, apiKeyConfigured: Boolean(runtime.apiKey) };
   }
 
+  async listSkills(memberId: string): Promise<Skill[]> {
+    await this.requireMember(memberId);
+    return this.ctx.storage.sql
+      .exec<{ id: string; slug: string; title: string; description: string; enabled: number; created_by: string; created_at: number; updated_at: number }>(
+        "SELECT id, slug, title, description, enabled, created_by, created_at, updated_at FROM skills ORDER BY updated_at DESC",
+      )
+      .toArray()
+      .map(this.skillFromRow);
+  }
+
+  async createSkill(input: { actorId: string; title: string; description: string }): Promise<Skill> {
+    const actor = await this.requireMember(input.actorId);
+    if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can create skills");
+    const title = safeText(input.title, "Skill title", 120);
+    const description = safeText(input.description, "Skill description", 500);
+    const base = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "family-skill";
+    let slug = base;
+    for (let i = 2; this.skillSlugExists(slug); i++) slug = `${base}-${i}`;
+    const createdAt = now();
+    const skill: Skill = { id: crypto.randomUUID(), slug, title, description, enabled: true, createdBy: actor.id, createdAt, updatedAt: createdAt };
+    this.ctx.storage.sql.exec(
+      "INSERT INTO skills (id, slug, title, description, enabled, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?, ?)",
+      skill.id, skill.slug, skill.title, skill.description, skill.createdBy, skill.createdAt, skill.updatedAt,
+    );
+    const content = `---\nname: ${skill.slug}\ndescription: ${skill.description}\n---\n\n# ${skill.title}\n\n${skill.description}\n\n## Instructions\n\n- Help the family with this skill when it is relevant.\n`;
+    this.ctx.storage.sql.exec("INSERT INTO skill_files (skill_id, path, content, updated_at) VALUES (?, 'SKILL.md', ?, ?)", skill.id, content, createdAt);
+    return skill;
+  }
+
+  async listSkillFiles(input: { actorId: string; skillId: string }): Promise<SkillFile[]> {
+    await this.requireMember(input.actorId);
+    this.requireSkill(input.skillId);
+    return this.ctx.storage.sql
+      .exec<{ path: string; content: string; updated_at: number }>("SELECT path, content, updated_at FROM skill_files WHERE skill_id = ? ORDER BY path", input.skillId)
+      .toArray()
+      .map((row) => ({ path: row.path, content: row.content, updatedAt: row.updated_at }));
+  }
+
+  async updateSkillFile(input: { actorId: string; skillId: string; path: string; content: string }): Promise<SkillFile> {
+    const actor = await this.requireMember(input.actorId);
+    if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can edit skills");
+    this.requireSkill(input.skillId);
+    const path = safeText(input.path, "Path", 160);
+    if (path.includes("..") || path.startsWith("/")) throw new Error("Invalid skill file path");
+    if (input.content.length > 40_000) throw new Error("Skill file is too large");
+    const updatedAt = now();
+    this.ctx.storage.sql.exec(
+      `INSERT INTO skill_files (skill_id, path, content, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(skill_id, path) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at`,
+      input.skillId, path, input.content, updatedAt,
+    );
+    this.ctx.storage.sql.exec("UPDATE skills SET updated_at = ? WHERE id = ?", updatedAt, input.skillId);
+    return { path, content: input.content, updatedAt };
+  }
+
+  async setSkillEnabled(input: { actorId: string; skillId: string; enabled: boolean }): Promise<Skill> {
+    const actor = await this.requireMember(input.actorId);
+    if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can update skills");
+    this.requireSkill(input.skillId);
+    const updatedAt = now();
+    this.ctx.storage.sql.exec("UPDATE skills SET enabled = ?, updated_at = ? WHERE id = ?", input.enabled ? 1 : 0, updatedAt, input.skillId);
+    return this.requireSkill(input.skillId);
+  }
+
   private async requireMember(memberId: string): Promise<Member> {
     const member = await this.getMember(memberId);
     if (member === null) throw new Error("Member not found");
@@ -603,6 +684,25 @@ export class FamilyChat extends DurableObject<Env> {
 
   private workspaceFromRow(row: { id: string; title: string; created_by: string; created_at: number }): Workspace {
     return { id: row.id, title: row.title, createdBy: row.created_by, createdAt: row.created_at };
+  }
+
+  private skillSlugExists(slug: string): boolean {
+    return this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM skills WHERE slug = ?", slug).one().count > 0;
+  }
+
+  private requireSkill(skillId: string): Skill {
+    const row = this.ctx.storage.sql
+      .exec<{ id: string; slug: string; title: string; description: string; enabled: number; created_by: string; created_at: number; updated_at: number }>(
+        "SELECT id, slug, title, description, enabled, created_by, created_at, updated_at FROM skills WHERE id = ?",
+        skillId,
+      )
+      .toArray()[0];
+    if (row === undefined) throw new Error("Skill not found");
+    return this.skillFromRow(row);
+  }
+
+  private skillFromRow(row: { id: string; slug: string; title: string; description: string; enabled: number; created_by: string; created_at: number; updated_at: number }): Skill {
+    return { id: row.id, slug: row.slug, title: row.title, description: row.description, enabled: row.enabled === 1, createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at };
   }
 
   private messageFromRow(row: { id: number; workspace_id: string; author_id: string; author_name: string; kind: ChatMessage["kind"]; text: string; created_at: number }): ChatMessage {
