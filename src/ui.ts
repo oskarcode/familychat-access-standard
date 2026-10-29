@@ -5,7 +5,7 @@ export const appHtml = String.raw`<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FamilyChat</title>
   <style>
-    :root { color-scheme: light; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #20242c; background: #f7f8fa; --accent:#635bff; --accent-hover:#5149e8; --accent-soft:#efefff; --blue:#2563eb; --surface:#fff; --surface-muted:#f6f7f9; --line:#e5e7eb; --text-muted:#68707d; --danger:#b4233c; --shadow-sm:0 1px 2px rgb(16 24 40 / 5%); --shadow-lg:0 16px 40px rgb(16 24 40 / 10%); }
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #20242c; background: #f7f8fa; --accent:#f06449; --accent-hover:#da5239; --accent-soft:#fff0eb; --blue:#2563eb; --surface:#fff; --surface-muted:#f6f7f9; --line:#e5e7eb; --text-muted:#68707d; --danger:#b4233c; --shadow-sm:0 1px 2px rgb(16 24 40 / 5%); --shadow-lg:0 16px 40px rgb(16 24 40 / 10%); }
     * { box-sizing: border-box; }
     html, body { min-height: 100%; }
     body { margin: 0; background: #f7f8fa; color: #20242c; font-size: .9375rem; line-height: 1.5; }
@@ -68,7 +68,56 @@ export const appHtml = String.raw`<!doctype html>
     #connectors .card { box-shadow: var(--shadow-sm); }
     code { background: var(--surface-muted); padding: .15rem .35rem; border-radius: .4rem; }
     pre { overflow: auto; max-height: 12rem; }
-    @media (max-width: 900px) { body.app-ready { overflow: auto; } .grid, .auth, body.app-ready .grid { grid-template-columns: 1fr; height: auto; } body.app-ready .grid > aside:first-child, body.app-ready .grid > aside:last-child { border: 0; } .messages { height: 44vh; } .msg, .msg.mine { max-width: 100%; } }
+    /* Current pi-durable-chat inspired shell: warm FamilyOS sidebar, central transcript, floating composer. */
+    body.app-ready .grid { grid-template-columns: minmax(15rem, 17.5rem) minmax(0, 1fr) minmax(17rem, 20rem); background:#fff; }
+    body.app-ready .session-sidebar-lite { background:#fafafa; border-right:1px solid var(--line); padding:0; }
+    .workspace-brand { display:flex; min-width:0; align-items:center; gap:.65rem; padding:.95rem .9rem; border-bottom:1px solid var(--line); }
+    .workspace-brand > span:last-child { display:grid; min-width:0; }
+    .workspace-brand strong, .workspace-brand small { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .workspace-brand small { color:var(--text-muted); font-size:.7rem; }
+    .workspace-avatar, .workspace-monogram { display:inline-grid; flex:none; place-items:center; background:#e8e6e2; color:#57534e; font-weight:650; text-transform:uppercase; }
+    .workspace-avatar { width:2rem; height:2rem; border-radius:.55rem; }
+    .new-workspace-button { display:flex; width:calc(100% - 1.5rem); align-items:center; justify-content:flex-start; gap:.5rem; margin:.8rem .75rem .35rem; border:0; background:#e9e7e4; box-shadow:none; font-weight:600; }
+    .new-workspace-button:hover:not(:disabled) { background:#dfddd9; }
+    .compact-input { width:calc(100% - 1.5rem); margin:0 .75rem .7rem; min-height:2.2rem; padding:.45rem .65rem; background:#fff; }
+    .sidebar-section { padding:1rem .55rem .5rem; border-top:1px solid var(--line); }
+    .sidebar-label-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding-inline:.35rem; margin-bottom:.65rem; }
+    .sidebar-label-row h2 { margin:0; color:#8a8782; font-size:.69rem; font-weight:650; letter-spacing:.09em; text-transform:uppercase; }
+    .sidebar-label-row span { color:#9b9893; font-size:.68rem; }
+    .nav-list { display:grid; gap:.18rem; }
+    .nav-list .item { display:flex; align-items:center; gap:.55rem; min-height:2.25rem; margin:0; padding:.42rem; border-radius:.55rem; background:transparent; color:#34312e; font-size:.82rem; }
+    .nav-list .item::before { content:attr(data-initials); display:inline-grid; width:1.65rem; height:1.65rem; flex:none; place-items:center; border-radius:.45rem; background:#e8e6e2; color:#57534e; font-size:.61rem; font-weight:700; }
+    .nav-list .item.active { background:#ebe9e6; box-shadow:none; }
+    .people-list-lite { display:grid; gap:.35rem; padding-inline:.35rem; }
+    .people-list-lite > div { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:.55rem; padding:.3rem 0; }
+    .people-list-lite > div::before { content:attr(data-initial); display:inline-grid; width:1.7rem; height:1.7rem; place-items:center; border-radius:.45rem; background:#efede9; color:#595550; font-size:.68rem; font-weight:700; }
+    .small-button { min-height:2rem; padding:.3rem .65rem; font-size:.78rem; }
+    .session-sidebar-footer-lite { margin-top:auto; display:grid; gap:.4rem; padding:.8rem .9rem; border-top:1px solid var(--line); }
+    .session-sidebar-footer-lite small { overflow:hidden; color:var(--text-muted); font-size:.65rem; text-overflow:ellipsis; white-space:nowrap; }
+    body.app-ready .conversation-view-lite { display:grid; grid-template-rows:auto minmax(0,1fr) auto auto; background:#fff; }
+    .conversation-header-lite { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.875rem 1.25rem; border-bottom:1px solid var(--line); background:rgb(255 255 255 / 92%); backdrop-filter:blur(12px); }
+    .conversation-header-lite h2 { margin:0; color:#211f1d; font-size:1.05rem; }
+    .conversation-header-lite small { color:var(--text-muted); font-size:.7rem; }
+    .conversation-header-lite p { margin:0; }
+    body.app-ready .messages { padding:1.75rem max(1rem, calc((100% - 52rem) / 2)); }
+    .msg.agent, .msg.agent-request { max-width:48rem; }
+    .msg.agent .byline, .msg.agent-request .byline { color:#8a8782; }
+    .msg.agent > div:last-child, .msg.agent-request > div:last-child { color:#24211f; line-height:1.55; }
+    .prompt-bar { display:grid; gap:.1rem; width:min(calc(100% - 2rem), 62rem); max-width:62rem; margin:0 auto .75rem; padding:.35rem; border:1px solid #d9dce2; border-radius:1.35rem; background:#fff; box-shadow:0 10px 30px rgb(16 24 40 / 10%); transition:border-color 140ms ease, box-shadow 140ms ease; }
+    .prompt-bar:focus-within { border-color:color-mix(in srgb, var(--accent) 45%, #d9dce2); box-shadow:0 0 0 3px color-mix(in srgb, var(--accent) 9%, transparent), 0 12px 34px rgb(16 24 40 / 12%); }
+    #composer { width:100%; min-height:3.25rem; max-height:12rem; margin:0; padding:.7rem .9rem .2rem; resize:none; overflow-y:hidden; border:0; border-radius:1rem; background:transparent; box-shadow:none; font-size:1rem; line-height:1.5; }
+    #composer:focus { outline:0; }
+    .composer-footer { display:flex; min-height:2.35rem; align-items:center; justify-content:space-between; gap:.75rem; padding:.25rem .3rem .3rem .7rem; }
+    .composer-status { display:grid; min-width:0; color:var(--text-muted); font-size:.7rem; }
+    .composer-actions { display:flex; flex:none; gap:.45rem; }
+    .prompt-bar button { min-width:5rem; min-height:2.2rem; padding:.35rem .8rem; border-radius:999px; font-weight:650; }
+    .prompt-bar .ask-agent-button { min-width:6.25rem; border-color:var(--accent); background:var(--accent); color:white; box-shadow:0 4px 12px rgb(240 100 73 / 20%); }
+    .prompt-bar .ask-agent-button:hover:not(:disabled) { border-color:var(--accent-hover); background:var(--accent-hover); }
+    .prompt-bar .send-family-button { border-color:#ddd9d4; background:#f1efec; color:#4f4a45; box-shadow:none; }
+    .prompt-bar .send-family-button:hover:not(:disabled) { border-color:#cfcbc5; background:#e7e4e0; color:#302d2a; }
+    .connections-panel { background:#fafafa; border-left:1px solid var(--line); }
+    .connections-panel h2 { color:#8a8782; font-size:.69rem; letter-spacing:.09em; text-transform:uppercase; }
+    @media (max-width: 900px) { body.app-ready { overflow: auto; } .grid, .auth, body.app-ready .grid { grid-template-columns: 1fr; height: auto; } body.app-ready .grid > aside:first-child, body.app-ready .grid > aside:last-child { border: 0; } .messages { height: 44vh; } .msg, .msg.mine { max-width: 100%; } .conversation-header-lite { display:grid; } .connections-panel { border-left:0; border-top:1px solid var(--line); } }
   </style>
 </head>
 <body>
@@ -124,20 +173,25 @@ export const appHtml = String.raw`<!doctype html>
     </section>
 
     <section id="app" class="grid hidden">
-      <aside class="card stack">
-        <div><h2>Family</h2><div id="members" class="stack"></div></div>
-        <div><h2>Invite</h2><button id="inviteButton" class="secondary">Create invite</button><p id="inviteResult" class="muted"></p></div>
-        <div><h2>Rooms</h2><div id="workspaces"></div></div>
-        <div class="row"><input id="newWorkspace" placeholder="New room" /><button id="newWorkspaceButton" class="secondary">Add</button></div>
+      <aside class="card stack session-sidebar-lite">
+        <header class="workspace-brand">
+          <span class="workspace-avatar" id="memberAvatar" aria-hidden="true">F</span>
+          <span><strong>FamilyChat</strong><small id="memberLabel">Family workspace</small></span>
+        </header>
+        <button id="newWorkspaceButton" class="new-workspace-button secondary"><span aria-hidden="true">＋</span> New room</button>
+        <input id="newWorkspace" class="compact-input" placeholder="Room name" />
+        <nav class="sidebar-section" aria-labelledby="roomsHeading"><div class="sidebar-label-row"><h2 id="roomsHeading">Rooms</h2><span id="roomCount">0</span></div><div id="workspaces" class="nav-list"></div></nav>
+        <section class="sidebar-section"><div class="sidebar-label-row"><h2>Family</h2></div><div id="members" class="people-list-lite"></div></section>
+        <section class="sidebar-section"><div class="sidebar-label-row"><h2>Invites</h2></div><button id="inviteButton" class="secondary small-button">Create invite</button><p id="inviteResult" class="muted"></p></section>
+        <footer class="session-sidebar-footer-lite"><small id="signedInLabel">Signed in</small><button id="logoutButton" class="secondary small-button">Logout</button></footer>
       </aside>
-      <section class="card stack">
-        <div class="row" style="justify-content:space-between"><div><h2 id="roomTitle">Family room</h2><p class="muted">Send normal messages to family, or explicitly invite the resident agent.</p></div><button id="logoutButton" class="secondary">Logout</button></div>
+      <section class="card stack conversation-view-lite">
+        <header class="conversation-header-lite"><div><small>Current room</small><h2 id="roomTitle">Family room</h2></div><p class="muted">Send to everyone, or ask the resident Family Agent.</p></header>
         <div id="messages" class="messages"></div>
-        <textarea id="composer" placeholder="Write to your family, or ask the agent…"></textarea>
-        <div class="row"><button id="sendFamily">Send to Family</button><button id="sendAgent" class="agent">Ask Agent</button></div>
+        <form class="prompt-bar" id="composerForm"><textarea id="composer" placeholder="Start a new message…"></textarea><div class="composer-footer"><span class="composer-status">GLM 5.2 · Workers AI</span><div class="composer-actions"><button id="sendFamily" class="send-family-button" type="button">Send to Family</button><button id="sendAgent" class="ask-agent-button agent" type="button">Ask Agent</button></div></div></form>
         <p id="chatError" class="error"></p>
       </section>
-      <aside class="card stack"><h2>MCP connectors</h2><p class="muted">Owners/admins can connect Streamable HTTP MCP services.</p><div id="connectors" class="stack"></div><input id="connectorLabel" placeholder="Label, e.g. Gmail MCP" /><input id="connectorUrl" placeholder="https://mcp.example.com/mcp" /><button id="connectorButton" class="secondary">Add connector</button><p id="connectorError" class="error"></p></aside>
+      <aside class="card stack connections-panel"><h2>Connections</h2><p class="muted">Connect Streamable HTTP MCP services for family tools.</p><div id="connectors" class="stack"></div><input id="connectorLabel" placeholder="Label, e.g. Gmail MCP" /><input id="connectorUrl" placeholder="https://mcp.example.com/mcp" /><button id="connectorButton" class="secondary">Add connector</button><p id="connectorError" class="error"></p></aside>
     </section>
   </main>
 
@@ -151,10 +205,11 @@ export const appHtml = String.raw`<!doctype html>
     ['Setup','Login','Join'].forEach((n) => $('tab'+n).onclick = () => selectTab(n.toLowerCase()));
     function showAuth(me) { document.body.classList.remove('app-ready'); hide('app'); hide('accessSetup'); show('auth'); state.mode = me.mode || 'app'; state.setupConfigured = me.setup?.configured === true; if (state.setupConfigured) selectTab('login'); else selectTab('setup'); $('status').textContent = me.configured === false ? 'Worker secrets SESSION_SECRET and SETUP_TOKEN are required.' : 'Create or sign in to your FamilyChat account.'; }
     function showAccessSetup(access) { document.body.classList.remove('app-ready'); hide('app'); hide('auth'); show('accessSetup'); $('setupHost').textContent = location.host; $('accessState').textContent = access?.state || 'unknown'; $('status').textContent = 'Cloudflare Access setup required'; }
-    async function boot() { const me = await api('/api/me'); hide('auth'); hide('accessSetup'); hide('app'); if (me.mode === 'access' && !me.ok) { showAccessSetup(me.access); return; } if (!me.ok) { showAuth(me); return; } state.member = me.member; state.mode = me.mode; $('status').textContent = 'Signed in as ' + state.member.name + ' · ' + state.member.role; document.body.classList.add('app-ready'); show('app'); await refreshAll(); }
+    const initials = (value) => String(value || 'F').trim().split(/\s+/).slice(0,2).map((part) => part[0]).join('').toUpperCase() || 'F';
+    async function boot() { const me = await api('/api/me'); hide('auth'); hide('accessSetup'); hide('app'); if (me.mode === 'access' && !me.ok) { showAccessSetup(me.access); return; } if (!me.ok) { showAuth(me); return; } state.member = me.member; state.mode = me.mode; $('status').textContent = 'Signed in as ' + state.member.name + ' · ' + state.member.role; $('memberAvatar').textContent = initials(state.member.name); $('memberLabel').textContent = state.member.name; $('signedInLabel').textContent = state.member.email || state.member.name; document.body.classList.add('app-ready'); show('app'); await refreshAll(); }
     async function refreshAll() { const [workspaces, members, connectors] = await Promise.all([api('/api/workspaces'), api('/api/members'), api('/api/connectors')]); state.workspaces = workspaces.workspaces; if (!state.workspaceId && state.workspaces[0]) state.workspaceId = state.workspaces[0].id; renderWorkspaces(); renderMembers(members.members); renderConnectors(connectors.connectors); if (state.workspaceId) await refreshMessages(); }
-    function renderMembers(members) { $('members').innerHTML = members.map((m) => '<div><strong>' + esc(m.name) + '</strong><br><span class="muted">' + esc(m.email || '') + ' · ' + esc(m.role) + '</span></div>').join(''); }
-    function renderWorkspaces() { $('workspaces').innerHTML = ''; for (const workspace of state.workspaces) { const b = document.createElement('button'); b.className = 'item secondary' + (workspace.id === state.workspaceId ? ' active' : ''); b.textContent = workspace.title; b.onclick = async () => { state.workspaceId = workspace.id; renderWorkspaces(); await refreshMessages(); }; $('workspaces').append(b); } const current = state.workspaces.find((w) => w.id === state.workspaceId); $('roomTitle').textContent = current?.title || 'Family room'; }
+    function renderMembers(members) { $('members').innerHTML = members.map((m) => '<div data-initial="' + esc(initials(m.name)) + '"><span><strong>' + esc(m.name) + '</strong><br><span class="muted">' + esc(m.email || '') + ' · ' + esc(m.role) + '</span></span></div>').join(''); }
+    function renderWorkspaces() { $('workspaces').innerHTML = ''; $('roomCount').textContent = String(state.workspaces.length); for (const workspace of state.workspaces) { const b = document.createElement('button'); b.className = 'item secondary' + (workspace.id === state.workspaceId ? ' active' : ''); b.dataset.initials = initials(workspace.title); b.textContent = workspace.title; b.onclick = async () => { state.workspaceId = workspace.id; renderWorkspaces(); await refreshMessages(); }; $('workspaces').append(b); } const current = state.workspaces.find((w) => w.id === state.workspaceId); $('roomTitle').textContent = current?.title || 'Family room'; }
     async function refreshMessages() { const payload = await api('/api/workspaces/' + state.workspaceId + '/messages'); const box = $('messages'); box.innerHTML = ''; for (const m of payload.messages) { const item = document.createElement('article'); item.className = 'msg ' + m.kind + (m.authorId === state.member.id ? ' mine' : ''); item.innerHTML = '<div class="byline">' + esc(m.authorName) + '</div><div>' + esc(m.text) + '</div>'; box.append(item); } box.scrollTop = box.scrollHeight; }
     function renderConnectors(connectors) { const root = $('connectors'); root.innerHTML = ''; if (!connectors.length) { root.innerHTML = '<p class="muted">No connectors yet.</p>'; return; } for (const c of connectors) { const card = document.createElement('div'); card.className = 'card stack'; card.style.padding = '.75rem'; const tools = c.tools || []; card.innerHTML = '<strong>' + esc(c.label) + '</strong><span class="muted">' + esc(c.url) + '</span><span class="muted">Status: ' + esc(c.status) + '</span>' + (c.lastError ? '<span class="error">' + esc(c.lastError) + '</span>' : '') + (tools.length ? '<span class="muted">Tools: ' + tools.map((t) => esc(t.name)).join(', ') + '</span>' : '<span class="muted">No tools discovered yet.</span>'); const row = document.createElement('div'); row.className = 'row'; const refresh = document.createElement('button'); refresh.className = 'secondary'; refresh.textContent = 'Refresh'; refresh.onclick = async () => { await api('/api/connectors/' + c.id + '/refresh', { method: 'POST', body: '{}' }); await refreshAll(); }; row.append(refresh); if (c.authorizationUrl) { const auth = document.createElement('button'); auth.className = 'agent'; auth.textContent = 'Authorize'; auth.onclick = () => window.open(c.authorizationUrl, 'mcp-oauth', 'popup,width=560,height=720'); row.append(auth); } card.append(row); if (tools.length) { const select = document.createElement('select'); tools.forEach((t) => { const o = document.createElement('option'); o.value = t.name; o.textContent = t.title || t.name; select.append(o); }); const args = document.createElement('textarea'); args.value = '{}'; const call = document.createElement('button'); call.className = 'secondary'; call.textContent = 'Call tool'; const out = document.createElement('pre'); out.className = 'muted'; out.style.whiteSpace = 'pre-wrap'; call.onclick = async () => { out.textContent = 'Calling…'; try { const result = await api('/api/connectors/' + c.id + '/tools/' + encodeURIComponent(select.value) + '/call', { method: 'POST', body: JSON.stringify({ args: JSON.parse(args.value || '{}') }) }); out.textContent = JSON.stringify(result, null, 2); } catch (e) { out.textContent = e.message; } }; card.append(select, args, call, out); } root.append(card); } }
     async function send(target) { const text = $('composer').value.trim(); if (!text || !state.workspaceId) return; $('chatError').textContent = ''; $('composer').value = ''; try { await api('/api/workspaces/' + state.workspaceId + '/messages', { method: 'POST', body: JSON.stringify({ text, target }) }); await refreshMessages(); } catch (e) { $('chatError').textContent = e.message; } }
@@ -164,7 +219,7 @@ export const appHtml = String.raw`<!doctype html>
     $('inviteButton').onclick = async () => { const invite = await api('/api/invites', { method:'POST', body: JSON.stringify({ role:'member' }) }); $('inviteResult').innerHTML = 'Invite code: <code>' + esc(invite.code) + '</code>'; };
     $('logoutButton').onclick = async () => { await api('/api/logout', { method:'POST', body:'{}' }); location.reload(); };
     $('newWorkspaceButton').onclick = async () => { const title = $('newWorkspace').value.trim(); if (!title) return; const workspace = await api('/api/workspaces', { method:'POST', body: JSON.stringify({ title }) }); state.workspaceId = workspace.id; $('newWorkspace').value = ''; await refreshAll(); };
-    $('sendFamily').onclick = () => send('family'); $('sendAgent').onclick = () => send('agent');
+    $('sendFamily').onclick = () => send('family'); $('sendAgent').onclick = () => send('agent'); $('composerForm').onsubmit = (event) => { event.preventDefault(); send('agent'); };
     $('connectorButton').onclick = async () => { $('connectorError').textContent = ''; try { const c = await api('/api/connectors', { method:'POST', body: JSON.stringify({ label: $('connectorLabel').value, url: $('connectorUrl').value }) }); $('connectorLabel').value = ''; $('connectorUrl').value = ''; await refreshAll(); if (c.authorizationUrl) window.open(c.authorizationUrl, 'mcp-oauth', 'popup,width=560,height=720'); } catch (e) { $('connectorError').textContent = e.message; } };
     window.addEventListener('message', (event) => { if (event.origin !== location.origin || event.data?.type !== 'familychat:mcp-oauth') return; refreshAll().catch((e) => $('connectorError').textContent = e.message); });
     boot().catch((e) => $('status').textContent = e.message);
