@@ -5,14 +5,12 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createInterface } from 'node:readline/promises';
 
 // Pure planning function: redeploys never rotate credentials or silently switch auth.
-export function planSecrets(bindings, exists, allowAccess = false) {
+export function planSecrets(bindings, exists) {
   const names = new Set(bindings.map(b => b.name));
-  const access = ['ACCESS_ISSUER', 'ACCESS_AUDIENCE'].some(n => names.has(n)) || bindings.some(b => b.name === 'AUTH_MODE' && (b.type === 'secret_text' || b.text === 'access'));
-  if (access && !allowAccess) throw new Error('Access configuration detected. Stop: review auth migration, or use --allow-access to preserve it unchanged.');
-  if (access) return {};
+  const retired = ['ACCESS_ISSUER', 'ACCESS_AUDIENCE'].some(n => names.has(n)) || bindings.some(b => b.name === 'AUTH_MODE' && (b.type === 'secret_text' || b.text !== 'app'));
+  if (retired) throw new Error('Retired authentication configuration detected. Do not update this installation with this edition; use a new Worker or plan an explicit migration.');
   const missing = ['SESSION_SECRET', 'SETUP_TOKEN'].filter(n => !names.has(n));
   if (exists && missing.length) throw new Error('Existing Worker has incomplete app-auth secrets. Refusing to reset credentials; review it manually.');
   return Object.fromEntries(missing.map(n => [n, randomBytes(32).toString('base64url')]));
@@ -26,16 +24,17 @@ export function setupLink(origin, token) {
 
 export async function deploy() {
   const args = process.argv.slice(2).filter(a => a !== '--');
-  const flags = new Set(['--yes', '--allow-access']);
+  const usage = 'Usage: pnpm deploy:agent --account ACCOUNT_ID --name WORKER --yes (only after owner approval)';
   const options = {};
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (flags.has(arg)) options[arg] = true;
+    if (arg === '--yes') options[arg] = true;
     else if (['--account', '--name'].includes(arg) && args[i + 1] && !args[i + 1].startsWith('--')) options[arg] = args[++i];
-    else throw new Error('Usage: pnpm deploy:self [--account ACCOUNT_ID] [--name WORKER] [--yes] [--allow-access]');
+    else throw new Error(usage);
   }
+  if (!options['--account'] || !options['--name'] || !options['--yes']) throw new Error(usage);
   const config = JSON.parse(readFileSync('wrangler.jsonc', 'utf8')); // This project's config is JSON-compatible.
-  const name = options['--name'] || config.name;
+  const name = options['--name'];
   if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(name)) throw new Error('Invalid Worker name.');
   let environment = { ...process.env, WRANGLER_SEND_METRICS: 'false' };
   const run = (commandArgs, capture = false) => {
@@ -46,24 +45,11 @@ export async function deploy() {
   const wrangler = (commandArgs, capture = false) => run(['exec', 'wrangler', ...commandArgs], capture);
   let identity;
   try { identity = JSON.parse(wrangler(['whoami', '--json'], true)); }
-  catch { wrangler(['login']); identity = JSON.parse(wrangler(['whoami', '--json'], true)); }
+  catch { throw new Error('Unable to verify Cloudflare authentication. Run wrangler login with the owner, then retry.'); }
   const accounts = identity.accounts || [];
-  let account = options['--account'] || process.env.CLOUDFLARE_ACCOUNT_ID || config.account_id;
-  const terminal = process.stdin.isTTY && process.stdout.isTTY;
-  const question = async (text) => {
-    if (!terminal) throw new Error('Non-interactive deploy requires --account, --name and --yes after owner approval.');
-    const prompt = createInterface({ input: process.stdin, output: process.stdout });
-    try { return (await prompt.question(text)).trim(); } finally { prompt.close(); }
-  };
-  if (!account) {
-    if (accounts.length === 1) account = accounts[0].id;
-    else {
-      accounts.forEach((a, i) => console.log(`${i + 1}. ${a.name} (${a.id})`));
-      account = accounts[Number(await question('Choose account number: ')) - 1]?.id;
-    }
-  }
-  if (!account || !accounts.some(a => a.id === account)) throw new Error('Select an account returned by Wrangler whoami.');
-  if (!terminal && (!options['--account'] || !options['--name'] || !options['--yes'])) throw new Error('Agents must pass --account, --name and --yes after confirming the target with the owner.');
+  const account = options['--account'];
+  if (!accounts.some(a => a.id === account)) throw new Error('Select an account returned by Wrangler whoami.');
+  if (config.account_id && config.account_id !== account) throw new Error('Configured account differs from the approved account. Stop and review the target.');
   environment = { ...environment, CLOUDFLARE_ACCOUNT_ID: account };
   // Capture credentials in memory only; never log token output or include it in arguments.
   const credential = JSON.parse(wrangler(['auth', 'token', '--json'], true));
@@ -84,14 +70,13 @@ export async function deploy() {
       throw new Error(`Local ${binding.name} conflicts with the existing auth binding. Review the migration manually.`);
     }
   }
-  // Include local vars so a configuration change cannot silently turn Access on/off.
+  // Reject retired configuration in either the source or the existing deployment.
   const bindings = [...(settings?.bindings || []), ...Object.entries(config.vars || {}).map(([name, text]) => ({ name, text, type: 'plain_text' }))];
-  const secrets = planSecrets(bindings, settings !== null, Boolean(options['--allow-access']));
+  const secrets = planSecrets(bindings, settings !== null);
   const subdomain = await api('/workers/subdomain');
   if (!subdomain?.subdomain) throw new Error('Enable your workers.dev subdomain in the Cloudflare dashboard first.');
   const origin = `https://${name}.${subdomain.subdomain}.workers.dev`;
-  console.log(`\n${settings ? 'UPDATE existing' : 'CREATE new'} Worker: ${name}\nAccount: ${accounts.find(a => a.id === account).name} (${account})\nURL: ${origin}\nExisting secrets will be preserved. No Access policies will be changed.`);
-  if (!options['--yes'] && await question('Type the Worker name to confirm: ') !== name) throw new Error('Cancelled.');
+  console.log(`\n${settings ? 'UPDATE existing' : 'CREATE new'} Worker: ${name}\nAccount: ${accounts.find(a => a.id === account).name} (${account})\nURL: ${origin}\nExisting secrets will be preserved.`);
   run(['check']);
   let setupPath;
   if (secrets.SETUP_TOKEN) {
@@ -111,12 +96,12 @@ export async function deploy() {
     wrangler(command);
   } finally { rmSync(temporary, { recursive: true, force: true }); }
   console.log(`\nDeployed: ${origin}\n${setupPath ? 'Open the private setup link saved above. Delete that file after creating your owner account.' : 'Existing login and secrets preserved. Open your normal app URL.'}`);
-  // Never follow Access redirects or send the setup credential during the smoke check.
+  // Never follow redirects or send the setup credential during the smoke check.
   try {
     const response = await fetch(`${origin}/api/me`, { redirect: 'manual' });
     if (response.ok) {
       const state = await response.json();
-      console.log(`Smoke check: auth=${state.mode}, owner configured=${state.setup?.configured}, secrets ready=${state.configured ?? 'Access mode'}`);
+      console.log(`Smoke check: owner configured=${state.setup?.configured}, secrets ready=${state.configured}`);
     } else console.log(`Smoke check returned HTTP ${response.status}; verify the URL in your browser.`);
   } catch { console.log('Smoke check unavailable. Verify the URL in your browser.'); }
 }

@@ -1,64 +1,49 @@
-# Deploy FamilyChat for its owner
+# FamilyChat agent instructions
 
-## Goal and default
+## One supported flow
 
-Deploy this repository into the **owner's** Cloudflare account, with app-owned password login. The Worker, SQLite Durable Object and Workers AI binding are declared in `wrangler.jsonc`. No custom wizard, GitHub deployment service or Cloudflare Access setup is required.
+Deploy FamilyChat into the owner's Cloudflare account. The Worker, SQLite Durable Object and Workers AI binding are declared in `wrangler.jsonc`. FamilyChat uses its own password accounts and room invitations. Do not introduce a separate deployment wizard or another login provider.
 
-Example owner request:
+## Deploy
 
-> Deploy FamilyChat to my Cloudflare account. Guide me through Cloudflare sign-in, configure everything needed, and give me the setup link.
-
-## Safe workflow
-
-1. Read `README.md`, this file and `wrangler.jsonc`. Run `pnpm install --frozen-lockfile`.
-2. Check `pnpm exec wrangler whoami --json`. If not authenticated, run `pnpm exec wrangler login` and let the owner complete the browser flow. Never ask for an API token in chat.
-3. Confirm the exact account ID and Worker name with the owner. Existing Worker names mean **update**, not a new family. Do not change production authentication or delete data.
-4. Run:
+1. Read `README.md` and `wrangler.jsonc`. Check Node.js and pnpm are available, then run `pnpm install --frozen-lockfile`.
+2. Run `pnpm exec wrangler whoami --json`. If unauthenticated, run `pnpm exec wrangler login` and let the owner complete the browser flow. Never ask them to paste a Cloudflare API token into chat.
+3. Present the available accounts and confirm the exact **account ID and Worker name** with the owner. Reusing a Worker name updates that installation; a new name creates a separate family.
+4. After approval, run:
 
    ```sh
-   pnpm deploy:self --account ACCOUNT_ID --name WORKER_NAME --yes
+   pnpm deploy:agent --account ACCOUNT_ID --name WORKER_NAME --yes
    ```
 
-   `--yes` is only appropriate after the owner approves that target. Humans at an interactive terminal can just run `pnpm deploy:self`; it offers account selection and target confirmation.
+   All three arguments are required. `--yes` records that you already obtained approval; it is not permission to guess a target.
 
-5. The helper runs all checks, reads remote binding metadata, generates secrets **only for a fresh Worker**, and deploys code and secrets together. Existing credentials are preserved. Failed lookups are errors, never treated as permission to overwrite.
-6. For a new install, give the owner the path to the private `.wrangler/setup-ACCOUNT-WORKER-TIMESTAMP.txt` file. It contains the setup link. Prefer opening that link locally on their machine; do not echo credentials into agent transcripts, shared logs, commits or screenshots. The file is mode `0600` and ignored by Git.
-7. Owner opens the link, enters name/email/password/family name, and selects **Create my family**. The default **Family room** appears. Delete the private setup-link file after successful setup; do not delete it on a failed deploy if it might be needed to recover.
-8. Owner clicks **Invite family** and shares the single-use link privately. Invitees create a password account, or sign in and explicitly accept the room invite. No Cloudflare account is required for invitees.
+5. The helper checks remote configuration, runs tests and deploys code with newly generated secrets only for a fresh Worker. Updates preserve existing secrets and dashboard variables. Failed lookups and incomplete existing credentials stop deployment; never interpret them as permission to reset secrets.
+6. The helper saves a private setup link in `.wrangler/setup-ACCOUNT-WORKER-TIMESTAMP.txt`, with mode `0600`. Give the owner that local path or open the link locally. Do not echo credentials into transcripts, commits, shared logs or screenshots.
+7. The owner opens it, enters name/email/password/family name, and selects **Create my family**. Confirm **Family room** appears. Delete the private setup-link file after success, not before.
+8. Verify an invitation in a second browser, a family message and **Ask Agent**. Live AI availability depends on the owner's Cloudflare account. Report real-account checks separately from local/mocked tests.
 
-The setup credential is in a URL **fragment**, which is not sent with the initial HTTP request. The browser removes it from the address bar and keeps it in memory until setup. Owner setup is transactional and permanently closed after the first member exists. If the page is reloaded before setup, reopen the saved link.
+If the account has no workers.dev subdomain, guide the owner to configure one in the Cloudflare dashboard and retry. This script does not change GitHub repository visibility or grant repository access.
 
-## Updating an existing installation
+## Update safely
 
-Use the same helper with the **same account and Worker name**. It preserves secrets and dashboard vars. Never rotate `SESSION_SECRET` merely to deploy code; that invalidates sessions. Never generate a fresh `SETUP_TOKEN` to bypass completed setup.
+Use the same helper with the same approved account and Worker name. Never rotate `SESSION_SECRET` or `SETUP_TOKEN` merely to update code. Do not delete stored family data or remove bindings to get past deployment errors.
 
-The helper refuses incomplete existing app-auth configuration rather than guessing or resetting it. Inspect that deployment with the owner before repair. It also stops on detected Access bindings. `--allow-access` acknowledges an intentional **update of an already Access-configured deployment**, not permission to enable, disable or migrate authentication.
+The former Cloudflare Access integration is **retired**, not an alternative setup path. The helper rejects its configuration with no bypass flag. The Worker also refuses requests if retired settings remain, preventing a silent authentication change when someone bypasses the helper. Existing installations using that login must remain on the previous release until an owner-approved migration is designed. Password accounts are not automatically created from old identity-provider accounts.
 
-The helper requires an existing workers.dev account subdomain; if absent, guide the owner to configure it in the Cloudflare dashboard and retry. A private/unavailable GitHub repo must first be cloned by someone with access; this helper does not change repository visibility.
-
-## Optional Access (advanced, separate from onboarding)
-
-Cloudflare Access can protect the Worker hostname using a self-hosted application and an allow policy. Set `ACCESS_ISSUER` and `ACCESS_AUDIENCE` as secrets only after reviewing the auth migration with the owner. Both activate Access mode unless explicitly overridden by `AUTH_MODE=app`.
-
-- Access users must first pass the Access policy.
-- New Access identities no longer inherit every room; they accept room invites after signing in.
-- Existing app/password identities are **not automatically merged** with Access identities.
-- Previously granted room memberships are preserved. This update does not silently revoke access that earlier versions granted.
-- Never enable Access as an automatic follow-up to a successful app-auth deploy.
-
-## Test before committing
+## Tests and local development
 
 ```sh
 pnpm check
-# Optional browser prerequisites, once:
 pnpm exec playwright install chromium
 pnpm test:browser
 ```
 
-`check` includes TypeScript, Access unit tests, Wrangler dry-run, local workerd/SQLite HTTP and RPC integration tests, and a mocked deployment CLI test. Tests do not write to Cloudflare or call live AI. The browser test uses separate owner/invitee browser contexts and verifies setup, signup, existing-account invitations, room privacy, revocation and mobile layout.
+`check` includes TypeScript, password/session and retired-configuration tests, Wrangler dry-run, local workerd/SQLite integration tests and a mocked deployment CLI test. Browser tests exercise owner setup, signup, existing-account invitations, room privacy, revocation and mobile layout. No tests call live AI or write to Cloudflare.
 
-After a real deployment, manually verify owner setup, a family invitation in another browser, normal chat and Ask Agent. Workers AI availability/entitlement depends on the owner's account. Report live tests separately from local/mocked tests.
+For development only, copy `.dev.vars.example` to `.dev.vars`, set local-only values for its two secrets, and use `pnpm exec wrangler dev`. Never reuse production credentials in tests.
 
-## Secrets and data
+The bootstrap token travels in a URL fragment and is removed from the address bar immediately. It is kept only in page memory. If the owner reloads before finishing, reopen the saved link. First-owner setup is transactional and closed after the first member exists.
 
-Never commit `.dev.vars`, `.env` secrets, Cloudflare credentials, `.wrangler/`, private setup links, MCP credentials or local learning artifacts. Do not push commits, publish a repository, deploy to a different account or change Access policies without approval. No production data deletion is required for this workflow.
+## Boundaries
+
+Do not commit `.dev.vars`, `.env` secrets, Cloudflare credentials, `.wrangler/`, private setup links, MCP credentials or local learning artifacts. Do not push, publish, deploy to another account, change external security policies, or migrate existing authentication without explicit approval. Keep changes focused; model settings, integrations, skills and the calendar are not deployment prerequisites.

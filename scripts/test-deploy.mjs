@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { deploy } from './deploy-self.mjs';
+import { deploy } from './deploy-agent.mjs';
 
-test('deploy CLI: fresh install, safe update, Access guard and failed lookup (mock Cloudflare)', async () => {
+test('agent deploy: explicit target, safe update, retired-config guard and failed lookup (mock Cloudflare)', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'family-deploy-test-'));
   const original = { cwd: process.cwd(), argv: process.argv, env: process.env, fetch: globalThis.fetch };
   const account = 'a'.repeat(32);
@@ -28,9 +28,13 @@ test('deploy CLI: fresh install, safe update, Access guard and failed lookup (mo
       }
     `, { mode: 0o700 });
     process.env = { ...process.env, PATH: join(directory, 'bin') + ':' + process.env.PATH };
-    process.argv = ['node', 'deploy-self.mjs', '--account', account, '--name', 'test-family', '--yes'];
+    process.argv = ['node', 'deploy-agent.mjs'];
+    await assert.rejects(deploy(), /Usage:/);
+    process.argv = ['node', 'deploy-agent.mjs', '--account', account, '--name', 'test-family'];
+    await assert.rejects(deploy(), /Usage:/);
+    process.argv.push('--yes');
     globalThis.fetch = async (url, init) => {
-      if (String(url).endsWith('/api/me')) return Response.json({ mode: 'app', configured: true, setup: { configured: false } });
+      if (String(url).endsWith('/api/me')) return Response.json({ configured: true, setup: { configured: false } });
       assert.equal(init.headers.Authorization, 'Bearer test-token-not-real');
       if (apiFails) return Response.json({ success: false, errors: [{ code: 10000 }] }, { status: 403 });
       if (String(url).endsWith('/settings')) return remote ? Response.json({ success: true, result: remote }) : Response.json({ success: false, errors: [{ code: 10007 }] }, { status: 404 });
@@ -53,8 +57,10 @@ test('deploy CLI: fresh install, safe update, Access guard and failed lookup (mo
     assert.deepEqual(JSON.parse(readFileSync('uploaded.json', 'utf8')), {});
     assert.equal(readdirSync('.wrangler').length, 1);
     remote.bindings.push({ name: 'ACCESS_ISSUER', type: 'secret_text' });
-    await assert.rejects(deploy(), /Access configuration detected/);
+    await assert.rejects(deploy(), /Retired authentication configuration/);
     process.argv.push('--allow-access');
+    await assert.rejects(deploy(), /Usage:/);
+    process.argv.pop();
     writeFileSync('wrangler.jsonc', JSON.stringify({ name: 'test-family', vars: { ACCESS_ISSUER: 'https://different.example.com' } }));
     await assert.rejects(deploy(), /conflicts with the existing auth binding/);
     writeFileSync('wrangler.jsonc', JSON.stringify({ name: 'test-family', vars: {} }));

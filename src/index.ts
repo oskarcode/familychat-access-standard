@@ -1,4 +1,4 @@
-import { accessIdentity, type AccessState } from "./access";
+import { hasRetiredAuthConfig } from "./auth-config";
 import { hashPassword, signSession, verifySession } from "./crypto";
 import { FamilyChat } from "./family-chat";
 import type { AiProvider, ChatMessage, Env, FamilyChat as FamilyChatRpc, Member, Role } from "./types";
@@ -10,16 +10,11 @@ const FAMILY_DO_NAME = "default-family";
 const SESSION_COOKIE = "familychat_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
-type Authed = { readonly member: Member; readonly family: FamilyChatRpc; readonly access?: AccessState };
+type Authed = { readonly member: Member; readonly family: FamilyChatRpc };
 
 const json = (body: unknown, status = 200, headers?: HeadersInit): Response => Response.json(body, { status, headers });
 const familyStub = (env: Env): FamilyChatRpc => env.FAMILY.getByName(FAMILY_DO_NAME) as unknown as FamilyChatRpc;
 const publicOrigin = (request: Request): string => new URL(request.url).origin;
-const authMode = (env: Env): "app" | "access" => {
-  if (env.AUTH_MODE === "access") return "access";
-  if (env.AUTH_MODE === "app") return "app";
-  return env.ACCESS_ISSUER && env.ACCESS_AUDIENCE ? "access" : "app";
-};
 
 const requestJson = async (request: Request): Promise<Record<string, unknown>> => {
   const text = await request.text();
@@ -76,39 +71,6 @@ const sessionCookie = async (memberId: string, secret: string, request: Request)
 
 const clearCookie = (): string => `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
 
-const accessInstructions = (request: Request, env: Env, state: AccessState): Record<string, unknown> => ({
-  state: state.status,
-  appUrl: publicOrigin(request),
-  configured: Boolean(env.ACCESS_ISSUER?.trim() && env.ACCESS_AUDIENCE?.trim()),
-  accessIssuer: env.ACCESS_ISSUER || "",
-  steps: [
-    "Create a Cloudflare Access self-hosted application for this workers.dev hostname or custom domain.",
-    "Allow your family emails in the Access policy.",
-    "Copy the Access application AUD tag into Worker variable ACCESS_AUDIENCE.",
-    "Set ACCESS_ISSUER to your team domain, for example https://your-team.cloudflareaccess.com.",
-    "Open the protected URL again and the first Access-authenticated user becomes owner.",
-  ],
-});
-
-/**
- * Input:
- * - See the TypeScript parameters for `currentAccess`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
- *
- * Output:
- * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
- *
- * What this function does:
- * - Owns the `currentAccess` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
- * - Keep validation and side effects here aligned with the route and Durable Object documentation.
- */
-async function currentAccess(request: Request, env: Env): Promise<Authed | AccessState> {
-  const access = await accessIdentity(request, env);
-  if (access.status !== "ok" && access.status !== "local") return access;
-  const family = familyStub(env);
-  const member = await family.ensureAccessMember(access.identity);
-  return { member, family, access };
-}
-
 /**
  * Input:
  * - See the TypeScript parameters for `currentAppSession`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
@@ -143,11 +105,6 @@ async function currentAppSession(request: Request, env: Env): Promise<Authed | n
  * - Keep validation and side effects here aligned with the route and Durable Object documentation.
  */
 async function requireAuth(request: Request, env: Env): Promise<Authed | Response> {
-  if (authMode(env) === "access") {
-    const current = await currentAccess(request, env);
-    if ("member" in current) return current;
-    return json({ error: "Cloudflare Access identity is unavailable", access: accessInstructions(request, env, current) }, current.status === "missing_config" ? 503 : 401);
-  }
   const current = await currentAppSession(request, env);
   return current ?? json({ error: "Sign in required" }, 401);
 }
@@ -229,7 +186,7 @@ async function generateAgentReply(env: Env, family: FamilyChatRpc, actorId: stri
   const scheduleNote = schedules.length === 0
     ? "No upcoming family schedules are saved."
     : `Upcoming family schedules: ${schedules.slice(0, 12).map((schedule) => `${new Date(schedule.runAt).toISOString()} ${schedule.workspaceTitle ?? "Room"}: ${schedule.instruction}`).join("; ")}. If asked to create or change a schedule, explain that this standard version currently saves schedules from Settings → Calendar.`;
-  const system = `You are Family Agent, a warm resident AI participant in a private Cloudflare Access-protected family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty. ${connectorNote} ${skillNote} ${scheduleNote}`;
+  const system = `You are Family Agent, a warm resident AI participant in a private family chat. Humans can talk to each other without you. You respond only when asked through Ask Agent. Be concise, practical, family-friendly, and transparent about uncertainty. ${connectorNote} ${skillNote} ${scheduleNote}`;
   const prompt = `${system}\n\nRecent conversation:\n${formatTranscript(transcript)}\n\nReply as Family Agent.`;
   const messages = transcriptMessages(transcript, system);
 
@@ -287,17 +244,11 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/api/me" && request.method === "GET") {
     const setup = await family.setupStatus();
-    if (authMode(env) === "access") {
-      const current = await currentAccess(request, env);
-      return "member" in current
-        ? json({ ok: true, mode: "access", access: { state: current.access?.status }, member: current.member, setup })
-        : json({ ok: false, mode: "access", access: accessInstructions(request, env, current), member: null, setup });
-    }
     const current = await currentAppSession(request, env);
-    return json({ ok: current !== null, mode: "app", configured: Boolean(env.SESSION_SECRET && env.SETUP_TOKEN), member: current?.member ?? null, setup });
+    return json({ ok: current !== null, configured: Boolean(env.SESSION_SECRET && env.SETUP_TOKEN), member: current?.member ?? null, setup });
   }
 
-  if (authMode(env) === "app" && url.pathname === "/api/setup" && request.method === "POST") {
+  if (url.pathname === "/api/setup" && request.method === "POST") {
     if (!env.SESSION_SECRET || !env.SETUP_TOKEN) return json({ error: "SESSION_SECRET and SETUP_TOKEN must be configured" }, 500);
     const body = await requestJson(request);
     const member = await family.setupAppOwner({
@@ -311,14 +262,14 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     return json({ member }, 201, { "Set-Cookie": await sessionCookie(member.id, env.SESSION_SECRET, request) });
   }
 
-  if (authMode(env) === "app" && url.pathname === "/api/login" && request.method === "POST") {
+  if (url.pathname === "/api/login" && request.method === "POST") {
     if (!env.SESSION_SECRET) return json({ error: "SESSION_SECRET is not configured" }, 500);
     const body = await requestJson(request);
     const member = await family.loginAppMember({ email: textField(body, "email"), password: textField(body, "password") });
     return json({ member }, 200, { "Set-Cookie": await sessionCookie(member.id, env.SESSION_SECRET, request) });
   }
 
-  if (authMode(env) === "app" && url.pathname === "/api/join" && request.method === "POST") {
+  if (url.pathname === "/api/join" && request.method === "POST") {
     if (!env.SESSION_SECRET) return json({ error: "SESSION_SECRET is not configured" }, 500);
     const body = await requestJson(request);
     const member = await family.joinWithInvite({
@@ -330,7 +281,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     return json({ member }, 201, { "Set-Cookie": await sessionCookie(member.id, env.SESSION_SECRET, request) });
   }
 
-  if (authMode(env) === "app" && url.pathname === "/api/logout" && request.method === "POST") return json({ ok: true }, 200, { "Set-Cookie": clearCookie() });
+  if (url.pathname === "/api/logout" && request.method === "POST") return json({ ok: true }, 200, { "Set-Cookie": clearCookie() });
 
   if (url.pathname === "/api/mcp/callback" && request.method === "GET") {
     const connectorId = url.searchParams.get("connector");
@@ -480,6 +431,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     try {
+      // Fail closed for old deployments; removing a login provider must not silently change auth.
+      if (hasRetiredAuthConfig(env)) return json({ error: "This installation uses retired authentication settings. Keep its previous release until an explicit migration is planned; use a new Worker for this edition." }, 503);
       if (url.pathname.startsWith("/api/")) return await handleApi(request, env);
       if (request.method === "GET" || request.method === "HEAD") return new Response(appHtml, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
       return json({ error: "Method not allowed" }, 405);

@@ -95,11 +95,8 @@ export interface Env {
   readonly AI: Ai;
   readonly AI_MODEL?: string;
   readonly AI_GATEWAY_ID?: string;
-  readonly AUTH_MODE?: "app" | "access";
   readonly SESSION_SECRET?: string;
   readonly SETUP_TOKEN?: string;
-  readonly ACCESS_ISSUER?: string;
-  readonly ACCESS_AUDIENCE?: string;
 }
 
 export interface FamilyChat {
@@ -109,7 +106,6 @@ export interface FamilyChat {
   listInvites(input: { actorId: string; workspaceId: string }): Promise<{ code: string; expiresAt: number }[]>;
   revokeInvite(input: { actorId: string; code: string }): Promise<void>;
   loginAppMember(input: { email: string; password: string }): Promise<Member>;
-  ensureAccessMember(input: { id: string; name: string; email: string }): Promise<Member>;
   getMember(memberId: string): Promise<Member | null>;
   listMembers(): Promise<Member[]>;
   createInvite(input: { actorId: string; workspaceId: string; role: Role }): Promise<{ code: string; role: Role; workspaceId: string; expiresAt: number }>;

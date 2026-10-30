@@ -269,46 +269,6 @@ export class FamilyChat extends DurableObject<Env> {
 
   /**
    * Input:
-   * - See the TypeScript parameters for `ensureAccessMember`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
-   *
-   * Output:
-   * - Returns the typed value or Promise declared in the signature; errors are surfaced to the route handler or caller.
-   *
-   * What this function does:
-   * - Owns the `ensureAccessMember` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
-   * - Keep validation and side effects here aligned with the route and Durable Object documentation.
-   */
-  async ensureAccessMember(input: { id: string; name: string; email: string }): Promise<Member> {
-    // Access establishes identity, not membership in every room.
-    return this.ctx.storage.transactionSync(() => {
-      const row = this.ctx.storage.sql.exec<{ id: string; name: string; email: string; role: Role; created_at: number }>("SELECT id, name, email, role, created_at FROM members WHERE id = ?", input.id).toArray()[0];
-      const existing = row ? { id: row.id, name: row.name, email: row.email, role: row.role, createdAt: row.created_at } : null;
-      if (existing !== null) {
-        if (existing.name !== input.name || existing.email !== input.email) {
-          this.ctx.storage.sql.exec("UPDATE members SET name = ?, email = ? WHERE id = ?", input.name, input.email, input.id);
-          return { ...existing, name: input.name, email: input.email };
-        }
-        return existing;
-      }
-      const first = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM members").one().count === 0;
-      const member: Member = {
-        id: input.id,
-        name: safeText(input.name, "Name"),
-        email: input.email.trim().toLowerCase(),
-        role: first ? "owner" : "member",
-        createdAt: now(),
-      };
-      this.ctx.storage.sql.exec(
-        "INSERT INTO members (id, name, email, role, created_at) VALUES (?, ?, ?, ?, ?)",
-        member.id, member.name, member.email, member.role, member.createdAt,
-      );
-      if (first) this.insertWorkspace(member.id, "Family room");
-      return member;
-    });
-  }
-
-  /**
-   * Input:
    * - See the TypeScript parameters for `getMember`; callers pass runtime data from HTTP requests, Durable Object state, or helper modules.
    *
    * Output:

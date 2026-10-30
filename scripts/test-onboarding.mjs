@@ -4,14 +4,14 @@ import { createRequire } from 'node:module';
 import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { planSecrets, setupLink } from './deploy-self.mjs';
+import { planSecrets, setupLink } from './deploy-agent.mjs';
 
 // Use the exact Miniflare version bundled with installed Wrangler, not a second runtime.
 const require = createRequire(import.meta.url);
 const { Miniflare, convertV4MiniflareOptions } = createRequire(require.resolve('wrangler/package.json'))('miniflare');
 const code = readFileSync('.wrangler/dry-run/index.js', 'utf8');
 
-export function localOptions(persist, access = false) {
+export function localOptions(persist, extraBindings = {}) {
   return convertV4MiniflareOptions({
     modules: [
       { type: 'ESModule', path: resolve('test-runtime.js'), contents: `import handler, { FamilyChat } from './test-app.js';
@@ -24,7 +24,7 @@ export function localOptions(persist, access = false) {
     compatibilityDate: '2025-10-21', compatibilityFlags: ['nodejs_compat'],
     durableObjects: { FAMILY: { className: 'TestFamily', useSQLite: true } },
     resourcePersistencePath: persist || undefined,
-    bindings: { SESSION_SECRET: 'local-only-signing-key', SETUP_TOKEN: 'local-only-setup', AUTH_MODE: access ? 'access' : 'app' },
+    bindings: { SESSION_SECRET: 'local-only-signing-key', SETUP_TOKEN: 'local-only-setup', ...extraBindings },
     // No remote AI binding: these tests cannot spend credits or access live data.
   });
 }
@@ -36,12 +36,11 @@ async function request(mf, path, body, cookie, method = body ? 'POST' : 'GET') {
 const ownerInput = { token: 'local-only-setup', name: 'Owner', email: 'owner@example.com', password: 'password-123', familyName: 'Our test family' };
 
 if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
-  test('deploy planning preserves secrets, rejects partial auth and guards Access', () => {
+  test('deploy planning preserves secrets and rejects incompatible configuration', () => {
     assert.deepEqual(planSecrets([{ name: 'SESSION_SECRET' }, { name: 'SETUP_TOKEN' }], true), {});
     assert.throws(() => planSecrets([{ name: 'SESSION_SECRET' }], true), /incomplete/);
-    assert.throws(() => planSecrets([{ name: 'ACCESS_ISSUER' }], true), /Access/);
-    assert.throws(() => planSecrets([{ name: 'AUTH_MODE', text: 'access' }], true), /Access/);
-    assert.deepEqual(planSecrets([{ name: 'ACCESS_ISSUER' }], true, true), {});
+    assert.throws(() => planSecrets([{ name: 'ACCESS_ISSUER' }], true), /Retired authentication/);
+    assert.throws(() => planSecrets([{ name: 'AUTH_MODE', text: 'access' }], true), /Retired authentication/);
     const secrets = planSecrets([], false);
     assert.ok(secrets.SESSION_SECRET.length >= 40);
     assert.notEqual(secrets.SESSION_SECRET, secrets.SETUP_TOKEN);
@@ -107,18 +106,27 @@ if (process.argv[1]?.endsWith('test-onboarding.mjs')) {
     } finally { await mf.dispose(); rmSync(directory, { recursive: true, force: true }); }
   });
 
-  test('new Access identities do not inherit rooms and can redeem room invites', async () => {
-    const mf = new Miniflare(localOptions(false, true));
+  test('retired deployment settings fail closed even when deployed outside the helper', async () => {
+    for (const binding of [{ AUTH_MODE: 'access' }, { ACCESS_ISSUER: 'https://legacy.example.com' }, { ACCESS_AUDIENCE: 'legacy-audience' }]) {
+      const mf = new Miniflare(localOptions(false, binding));
+      try {
+        assert.equal((await request(mf, '/api/me')).status, 503);
+        assert.equal((await request(mf, '/api/setup', ownerInput)).status, 503);
+        const ns = await mf.getDurableObjectNamespace('FAMILY');
+        assert.equal((await ns.get(ns.idFromName('default-family')).setupStatus()).configured, false);
+      } finally { await mf.dispose(); }
+    }
+  });
+
+  test('identity headers no longer authenticate or auto-provision members', async () => {
+    const mf = new Miniflare(localOptions(false));
     try {
-      const ns = await mf.getDurableObjectNamespace('FAMILY'); const stub = ns.get(ns.idFromName('default-family'));
-      const users = await Promise.all(['owner', 'guest'].map(id => stub.ensureAccessMember({ id, name: id, email: id + '@example.com' })));
-      assert.equal(users.filter(m => m.role === 'owner').length, 1);
-      const owner = users.find(m => m.role === 'owner'); const guest = users.find(m => m.role === 'member');
-      assert.equal((await stub.listWorkspaces(guest.id)).length, 0);
-      const room = (await stub.listWorkspaces(owner.id))[0];
-      const invite = await stub.createInvite({ actorId: owner.id, workspaceId: room.id, role: 'member' });
-      await stub.acceptInvite({ actorId: guest.id, code: invite.code });
-      assert.equal((await stub.listWorkspaces(guest.id))[0].id, room.id);
+      const response = await mf.dispatchFetch('http://localhost/api/me', { headers: { 'Cf-Access-Jwt-Assertion': 'not-a-session', 'Cf-Access-Authenticated-User-Email': 'outsider@example.com' } });
+      const data = await response.json();
+      assert.equal(data.ok, false);
+      assert.equal(data.member, null);
+      assert.equal(data.setup.configured, false);
+      assert.equal((await request(mf, '/api/workspaces')).status, 401);
     } finally { await mf.dispose(); }
   });
 }
