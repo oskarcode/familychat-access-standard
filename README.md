@@ -4,18 +4,13 @@ A private family chat with a resident AI assistant, hosted in your family's own 
 
 ## Get started with your coding agent
 
-You need a Cloudflare account and a coding agent that can run terminal commands. Clone this repository and open it in the agent:
+You need a Cloudflare account and a coding agent that can run terminal commands. Paste this prompt—even if the agent is currently open in a different project:
 
-```sh
-git clone https://github.com/oskarcode/familychat-access-standard.git
-cd familychat-access-standard
-```
+> Clone **https://github.com/oskarcode/familychat-access-standard.git** into a new folder named **familychat-standard-test**. Do not clone or deploy the current workspace's repository. If that folder already exists, ask me before reusing it. Work only in the new clone, verify its origin, and read its AGENTS.md. Deploy a fresh FamilyChat instance to my Cloudflare account using a new Worker name. Confirm the account and Worker name with me once before deploying. Use the repository's deploy:agent helper, which already runs the checks. Do not configure Cloudflare Access or copy secrets from another project. Return the Worker URL and the local private setup-file path; do not print secrets in chat.
 
-Then ask:
+Your agent installs dependencies, guides you through Cloudflare sign-in, runs checks and deploys the app. Cloudflare sign-in authorizes the agent to deploy—it does not add a Cloudflare login requirement for your family. Family members use FamilyChat accounts with passwords.
 
-> Read AGENTS.md and deploy FamilyChat to my Cloudflare account. Confirm the account and Worker name with me before deploying. Configure everything needed and tell me where to open the private owner setup link. Do not print secrets in chat.
-
-Your agent installs dependencies, guides you through Cloudflare sign-in, runs checks and deploys the app. There is one deployment flow and one login system: FamilyChat accounts with passwords.
+**Use this exact repository URL.** `oskarcode/family-agent` and `pi-durable-chat` are different projects with different deployment/authentication requirements.
 
 The repository must be accessible to the person cloning it. A private repository requires GitHub permission.
 

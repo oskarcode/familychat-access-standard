@@ -1,49 +1,58 @@
-# FamilyChat agent instructions
+# FamilyChat: agent deployment runbook
 
-## One supported flow
+## 0. Identify the repository FIRST
 
-Deploy FamilyChat into the owner's Cloudflare account. The Worker, SQLite Durable Object and Workers AI binding are declared in `wrangler.jsonc`. FamilyChat uses its own password accounts and room invitations. Do not introduce a separate deployment wizard or another login provider.
+Canonical source: **https://github.com/oskarcode/familychat-access-standard.git**.
+This is NOT `oskarcode/family-agent`, `pi-durable-chat`, or the deploy wizard. Never infer the source from the terminal's current directory or a nearby project's remote.
 
-## Deploy
+For a fresh test, clone the canonical URL into a new folder, then work only there. If that folder exists, ask before reusing it. Do not scan parent directories or `node_modules` looking for another `AGENTS.md`.
 
-1. Read `README.md` and `wrangler.jsonc`. Check Node.js and pnpm are available, then run `pnpm install --frozen-lockfile`.
-2. Run `pnpm exec wrangler whoami --json`. If unauthenticated, run `pnpm exec wrangler login` and let the owner complete the browser flow. Never ask them to paste a Cloudflare API token into chat.
-3. Present the available accounts and confirm the exact **account ID and Worker name** with the owner. Reusing a Worker name updates that installation; a new name creates a separate family.
-4. After approval, run:
-
-   ```sh
-   pnpm deploy:agent --account ACCOUNT_ID --name WORKER_NAME --yes
-   ```
-
-   All three arguments are required. `--yes` records that you already obtained approval; it is not permission to guess a target.
-
-5. The helper checks remote configuration, runs tests and deploys code with newly generated secrets only for a fresh Worker. Updates preserve existing secrets and dashboard variables. Failed lookups and incomplete existing credentials stop deployment; never interpret them as permission to reset secrets.
-6. The helper saves a private setup link in `.wrangler/setup-ACCOUNT-WORKER-TIMESTAMP.txt`, with mode `0600`. Give the owner that local path or open the link locally. Do not echo credentials into transcripts, commits, shared logs or screenshots.
-7. The owner opens it, enters name/email/password/family name, and selects **Create my family**. Confirm **Family room** appears. Delete the private setup-link file after success, not before.
-8. Verify an invitation in a second browser, a family message and **Ask Agent**. Live AI availability depends on the owner's Cloudflare account. Report real-account checks separately from local/mocked tests.
-
-If the account has no workers.dev subdomain, guide the owner to configure one in the Cloudflare dashboard and retry. This script does not change GitHub repository visibility or grant repository access.
-
-## Update safely
-
-Use the same helper with the same approved account and Worker name. Never rotate `SESSION_SECRET` or `SETUP_TOKEN` merely to update code. Do not delete stored family data or remove bindings to get past deployment errors.
-
-The former Cloudflare Access integration is **retired**, not an alternative setup path. The helper rejects its configuration with no bypass flag. The Worker also refuses requests if retired settings remain, preventing a silent authentication change when someone bypasses the helper. Existing installations using that login must remain on the previous release until an owner-approved migration is designed. Password accounts are not automatically created from old identity-provider accounts.
-
-## Tests and local development
+Before installing or touching Cloudflare, verify:
 
 ```sh
-pnpm check
-pnpm exec playwright install chromium
-pnpm test:browser
+git remote get-url origin
+node -e "const p=require('./package.json'); if(p.name!=='familychat-access-standard'||p.scripts['deploy:agent']!=='node scripts/deploy-agent.mjs') process.exit(1)"
 ```
 
-`check` includes TypeScript, password/session and retired-configuration tests, Wrangler dry-run, local workerd/SQLite integration tests and a mocked deployment CLI test. Browser tests exercise owner setup, signup, existing-account invitations, room privacy, revocation and mobile layout. No tests call live AI or write to Cloudflare.
+The origin must be the canonical repository (HTTPS/SSH), or a fork explicitly confirmed by the owner. Missing runbook/helper or a failed identity check means **STOP: wrong/outdated checkout**, not permission to improvise.
 
-For development only, copy `.dev.vars.example` to `.dev.vars`, set local-only values for its two secrets, and use `pnpm exec wrangler dev`. Never reuse production credentials in tests.
+## 1. Prepare once
 
-The bootstrap token travels in a URL fragment and is removed from the address bar immediately. It is kept only in page memory. If the owner reloads before finishing, reopen the saved link. First-owner setup is transactional and closed after the first member exists.
+Read this file and `wrangler.jsonc`; do not audit application source for a routine deploy. Check Node/pnpm, then run:
 
-## Boundaries
+```sh
+pnpm install --frozen-lockfile
+pnpm exec wrangler whoami --json
+```
 
-Do not commit `.dev.vars`, `.env` secrets, Cloudflare credentials, `.wrangler/`, private setup links, MCP credentials or local learning artifacts. Do not push, publish, deploy to another account, change external security policies, or migrate existing authentication without explicit approval. Keep changes focused; model settings, integrations, skills and the calendar are not deployment prerequisites.
+If unauthenticated, run `pnpm exec wrangler login` once and let the owner complete it. This authorizes deployment; it is **not Cloudflare Access login for family members**. Never read/copy another project's `.dev.vars` or request tokens in chat.
+
+## 2. Confirm once
+
+Ask one question containing the account name/ID, Worker name and **create versus update** intent. A fresh test needs a new Worker name; never default to an existing production/test deployment. Reconfirm only if the target changes. Do not edit `wrangler.jsonc` to rename the Worker.
+
+## 3. Run ONE deployment command
+
+After approval:
+
+```sh
+pnpm deploy:agent --account ACCOUNT_ID --name WORKER_NAME --yes
+```
+
+The helper performs remote checks, **runs `pnpm check`**, deploys code/secrets together, preserves existing secrets on updates, saves the private setup link and checks `/api/me`.
+
+Do not separately run builds, dry-runs, tests, raw deploys, secret uploads or browser installs for an unchanged checkout. Never print `wrangler auth token` output. On failure, inspect only the named failing step/file and retry after fixing it; do not repeatedly deploy or research unrelated products. Follow any additional checks required by your environment.
+
+## 4. Handoff, then STOP
+
+Return the Worker URL, account/Worker, check result and **local setup-file path only**. Do not read/print the private link into tool output. The owner opens that file locally, creates their account, then deletes it. Show the Worker URL even when keeping the setup credential private; a fresh family still needs its setup token.
+
+Let the owner test signup, invitations and Ask Agent. Do not create live test accounts, use paid AI, run browser automation, commit or push unless asked. Local browser tests are for code changes: `pnpm test:browser` (install Chromium once if missing).
+
+## Stop conditions, not setup tasks
+
+- **Cloudflare Access is NOT required or supported.** Do not create Access apps/policies, Google OAuth clients, VAPID keys, AI Gateways or custom domains for deployment.
+- A retired-authentication error means an incompatible existing target. Stop; propose a new Worker name for a fresh test. Never remove security settings or bypass the guard.
+- A redirect to an Access login means external protection or the wrong deployment. Verify repository and hostname; do not disable the policy automatically.
+- Missing account permissions, workers.dev subdomain or existing secrets: report the exact blocker. Do not reset credentials/data.
+- Keep `.env`, `.dev.vars`, `.wrangler/` and all credentials private. No changes to other projects or Cloudflare resources outside the approved target.
