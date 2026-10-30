@@ -87,6 +87,7 @@ export type Schedule = {
 export type SetupStatus = {
   readonly configured: boolean;
   readonly memberCount: number;
+  readonly familyName?: string;
 };
 
 export interface Env {
@@ -103,7 +104,10 @@ export interface Env {
 
 export interface FamilyChat {
   setupStatus(): Promise<SetupStatus>;
-  setupAppOwner(input: { token: string; expectedToken: string; name: string; email: string; passwordHash: string }): Promise<Member>;
+  setupAppOwner(input: { token: string; expectedToken: string; name: string; email: string; passwordHash: string; familyName?: string }): Promise<Member>;
+  acceptInvite(input: { actorId: string; code: string }): Promise<{ workspaceId: string }>;
+  listInvites(input: { actorId: string; workspaceId: string }): Promise<{ code: string; expiresAt: number }[]>;
+  revokeInvite(input: { actorId: string; code: string }): Promise<void>;
   loginAppMember(input: { email: string; password: string }): Promise<Member>;
   ensureAccessMember(input: { id: string; name: string; email: string }): Promise<Member>;
   getMember(memberId: string): Promise<Member | null>;

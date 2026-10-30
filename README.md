@@ -7,10 +7,10 @@ FamilyChat Standard is a self-deployable Cloudflare Worker that gives a family a
 - Hosts a browser chat app from one Cloudflare Worker.
 - Stores members, rooms, messages, invites, settings, schedules, skills, MCP connector state, and proactive follow-ups in one SQLite Durable Object.
 - Supports two auth modes:
-  - **App auth** for one-click-friendly self-deploys with setup token, password login, sessions, and room invites.
+  - **App auth** by default, with a private setup link, password login, sessions, and room invites.
   - **Cloudflare Access** as an optional family perimeter.
 - Lets owners/admins invite people to a specific room with a room-scoped invite URL.
-- Lets family members send human messages without calling AI.
+- Lets family members send human messages without requesting an immediate agent reply (background follow-up classification can still use AI).
 - Lets users choose **Ask Agent** when they want the Family Agent to answer using Workers AI or a bring-your-own Anthropic key.
 - Includes a Settings modal for AI model selection, a basic schedule calendar, skill files, MCP connectors, and account context.
 - Can automatically post a gentle LLM-generated follow-up when an open question has no visible reply for about 30 minutes.
@@ -24,7 +24,8 @@ Browser loads Worker URL
   -> src/index.ts authenticates with app session cookie or Cloudflare Access JWT
   -> src/index.ts calls the FamilyChat Durable Object
   -> src/family-chat.ts reads/writes SQLite tables
-  -> optional Workers AI, Anthropic, or MCP calls happen only for agent/settings/tool flows
+  -> Workers AI/Anthropic generate agent replies; follow-up monitoring can also use Workers AI
+  -> optional MCP calls happen through the tools/settings flow
   -> JSON response updates the browser UI
 ```
 
@@ -42,7 +43,7 @@ The Worker is the HTTP boundary. The Durable Object is the application database 
 | `jose` | Verifies Cloudflare Access JWTs against the Access JWKS endpoint. |
 | `@earendil-works/pi-mcp` | Connects to Streamable HTTP MCP servers, OAuth, tool discovery, and manual tool calls. |
 | TypeScript | Keeps Worker, Durable Object, and shared contracts type-checked. |
-| Vitest | Tests Access helper behavior. |
+| Vitest / Node test runner / Playwright | Access unit tests, local runtime onboarding tests, deployment safety tests and two-browser user-flow tests. |
 | Wrangler | Local development, dry-run deploy, and production deploy. |
 
 ## Project Structure
@@ -57,6 +58,9 @@ The Worker is the HTTP boundary. The Durable Object is the application database 
 | `src/mcp.ts` | MCP Streamable HTTP, OAuth, discovery, and manual tool-call adapter. |
 | `src/types.ts` | Shared TypeScript types and Durable Object RPC interface. |
 | `test/access.test.ts` | Vitest coverage for Access helper behavior. |
+| `AGENTS.md` | Agent deployment playbook, confirmation and credential-handling rules. |
+| `scripts/deploy-self.mjs` | Account-aware fresh deploy and safe update helper. |
+| `scripts/test-*.mjs` | Local workerd/SQLite, mocked deployment and browser tests. |
 | `wrangler.jsonc` | Worker, AI binding, Durable Object binding/export, vars, compatibility, observability. |
 | `.dev.vars.example` | Local-only secret template. Copy to `.dev.vars`; do not commit real values. |
 
@@ -73,7 +77,9 @@ The Worker is the HTTP boundary. The Durable Object is the application database 
 | `GET` | `/api/members` | Lists family members. | Signed-in member. |
 | `GET/POST` | `/api/workspaces` | Lists or creates rooms. | Signed-in member. |
 | `GET/POST` | `/api/workspaces/:id/messages` | Lists messages, sends family message, or asks agent. | Room member. |
-| `POST` | `/api/invites` | Creates room-scoped invite URL. | Owner/admin. |
+| `POST/GET` | `/api/invites` | Creates a room invite / lists active invites using `workspaceId`. | Owner/admin who belongs to the room. |
+| `POST` | `/api/invites/accept` | Existing account accepts a single-use room invite. | Signed-in app or Access member. |
+| `DELETE` | `/api/invites/:code` | Revokes an invite. | Owner/admin who belongs to the room. |
 | `GET/POST/DELETE` | `/api/schedules` and `/api/schedules/:id` | Calendar schedule list/create/delete. | Signed-in member for read/create; owner/admin for delete. |
 | `GET/POST` | `/api/ai/settings` | Reads model registry/settings or updates provider/model/API key. | Read: member. Write: owner/admin. |
 | `GET/POST/PUT` | `/api/skills*` | Lists, creates, edits, enables/disables skill files. | Read: member. Mutations: owner/admin. |
@@ -106,34 +112,38 @@ SETUP_TOKEN=replace-with-a-temporary-owner-setup-code
 
 ## Deploy Your Own Copy
 
-1. Push this repository to GitHub.
-2. Deploy with Cloudflare Workers Builds, Deploy to Cloudflare, or Wrangler.
-3. Ensure the Worker has:
-   - an `AI` binding,
-   - the `FAMILY` Durable Object binding/export,
-   - `AI_MODEL` and optional `AI_GATEWAY_ID` vars,
-   - required secrets for your chosen auth mode.
+### Recommended: ask your coding agent
 
-Manual Wrangler deploy:
+Clone the repository, open it in your coding agent, and ask:
+
+> Deploy FamilyChat to my Cloudflare account. Guide me through Cloudflare sign-in, configure everything needed, and give me the setup link.
+
+The agent follows [`AGENTS.md`](AGENTS.md). You approve Cloudflare sign-in and the target account/Worker. No separate deployment wizard or Access configuration is needed.
+
+### Or run it yourself
 
 ```sh
-pnpm install
-pnpm check
-pnpm exec wrangler deploy
+pnpm install --frozen-lockfile
+pnpm deploy:self
 ```
 
-### App-auth mode
+The helper checks authentication, offers account selection, confirms the target Worker, runs tests, and deploys. It creates `SESSION_SECRET` and `SETUP_TOKEN` only for a **new** Worker. Code and secrets deploy together. On updates, existing secrets and dashboard variables are preserved.
 
-Set these Worker secrets:
+The private setup link is saved to `.wrangler/setup-ACCOUNT-WORKER-TIMESTAMP.txt` with owner-only file permissions, rather than printed in shared logs. Open it locally, enter your name, email, password and family name, then select **Create my family**. You land in **Family room**. Delete the file after setup.
 
-```env
-SESSION_SECRET=<long-random-session-signing-secret>
-SETUP_TOKEN=<temporary-owner-setup-code>
+The setup token lives in the link fragment (`#setup=…`), not its query string. The browser removes it immediately and does not store it in localStorage/sessionStorage. If you reload before completing setup, reopen the saved link. Only the first owner can complete setup; concurrent attempts cannot create extra owners.
+
+**Invite your family:** click **Invite family**, share the link privately, and they enter name/email/password. Existing members select **Sign in**, then **Join invited room**. Invites work once, expire after seven days, and can be revoked with **Manage invites**. New rooms belong only to their creator until others are invited. Chat normally or tap **Ask Agent** for AI help; model selection and integrations can wait.
+
+**Updates:** rerun the helper with the same account and Worker. For automation, explicitly confirm the target first, then run:
+
+```sh
+pnpm deploy:self --account ACCOUNT_ID --name WORKER_NAME --yes
 ```
 
-Open the Worker URL and create the first owner account with the setup token.
+Incomplete existing credentials cause the helper to stop rather than reset them. Detected Access configuration also stops the helper unless you deliberately acknowledge an Access-preserving update with `--allow-access`. This is not an authentication migration option. A workers.dev subdomain must exist for the account; the helper explains when dashboard setup is required.
 
-### Cloudflare Access mode
+### Optional Cloudflare Access (advanced)
 
 Protect the Worker hostname with a Cloudflare Access self-hosted application and set:
 
@@ -143,6 +153,18 @@ ACCESS_AUDIENCE=<your-access-application-aud-tag>
 ```
 
 FamilyChat automatically switches to Access mode when both values exist, unless `AUTH_MODE=app` is explicitly configured. Do not define the same binding name as both a Wrangler var and a Worker secret.
+
+Review migration before enabling Access on an existing password-based family: identities are not automatically merged. Newly recognized Access users do not inherit existing rooms; after passing the Access policy, they accept a room invite. Existing memberships from earlier versions are left unchanged. Legacy family-wide invites are rejected—create a fresh room-scoped invite instead.
+
+## Test the User Flow
+
+```sh
+pnpm check
+pnpm exec playwright install chromium # once, for browser tests
+pnpm test:browser
+```
+
+Checks cover transactional first-owner setup, competing signup requests, duplicate emails, existing-account invite acceptance, private rooms, revocation, expiry, Access identities and persistence/session continuity across a local runtime restart. Deployment tests mock Wrangler and Cloudflare; browser tests run owner/invitee sessions separately against local workerd. No live account, AI spend or production data is used. Live AI, OAuth and remote deployment still require an explicit real-account smoke test.
 
 ## Security Notes
 
@@ -177,7 +199,7 @@ FamilyChat automatically switches to Access mode when both values exist, unless 
 | Owner setup says secrets are missing | Confirm `SESSION_SECRET` and `SETUP_TOKEN` are set as Worker secrets or in local `.dev.vars`. |
 | Access-protected URL does not show Access login | Confirm the Cloudflare Access app domain matches the Worker/custom domain and policy allows your email. |
 | `/api/me` returns Access setup instructions | Confirm `ACCESS_ISSUER` and `ACCESS_AUDIENCE` are present and not conflicting with Wrangler vars/secrets. |
-| Invited user cannot open invite URL | Add that email to the Cloudflare Access policy first, then send the room invite URL. |
+| Invited user cannot open invite URL | If Access is enabled, add their email to its policy first. Otherwise check that the invite has not expired, been revoked or already been used. |
 | Workers AI response fails | Try the default Llama 3.1 8B model, check account Workers AI access, or configure an AI Gateway. |
 | Claude says API key is missing | Save an Anthropic key in Settings → Tools → Agent model. |
 | MCP connector says authorization required | Click Authorize in Settings and complete the popup OAuth flow. |

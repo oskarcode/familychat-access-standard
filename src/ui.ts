@@ -4,6 +4,12 @@ export const appHtml = String.raw`<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>FamilyChat</title>
+  <meta name="referrer" content="no-referrer" />
+  <script>
+    // Keep the bootstrap credential only in memory, never in requests or browser storage.
+    window.familySetupToken = new URLSearchParams(location.hash.slice(1)).get('setup') || '';
+    if (window.familySetupToken) history.replaceState(null, '', location.pathname + location.search);
+  </script>
   <style>
     :root { color-scheme: light; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #20242c; background: #f7f8fa; --accent:#f06449; --accent-hover:#da5239; --accent-soft:#fff0eb; --blue:#2563eb; --surface:#fff; --surface-muted:#f6f7f9; --line:#e5e7eb; --text-muted:#68707d; --danger:#b4233c; --shadow-sm:0 1px 2px rgb(16 24 40 / 5%); --shadow-lg:0 16px 40px rgb(16 24 40 / 10%); }
     * { box-sizing: border-box; }
@@ -157,37 +163,38 @@ export const appHtml = String.raw`<!doctype html>
 
     <section id="auth" class="auth hidden">
       <div class="card story">
-        <p class="muted">Self-hosted by your Cloudflare account</p>
+        <p class="muted">A private space for your family</p>
         <h2>Your family's AI space, owned by you.</h2>
-        <p>Deploy once, create the owner account, invite family, and keep chat state plus MCP credentials in your Durable Object storage.</p>
+        <p>Create your family, share an invite, and start chatting. Your family hosts this space in its own Cloudflare account.</p>
         <div class="pill-list">
-          <div class="pill">💬 <div><strong>Human chat first.</strong><br><span class="muted">Normal messages do not call AI.</span></div></div>
+          <div class="pill">💬 <div><strong>Human chat first.</strong><br><span class="muted">Talk to your family in shared rooms.</span></div></div>
           <div class="pill">🤖 <div><strong>Resident Family Agent.</strong><br><span class="muted">Ask Agent when you want help.</span></div></div>
-          <div class="pill">🔐 <div><strong>Optional Access mode.</strong><br><span class="muted">Default auth is one-click deploy friendly; advanced users can switch to Cloudflare Access.</span></div></div>
+          <div class="pill">🔐 <div><strong>Easy to join.</strong><br><span class="muted">Family members only need an invite and their own account.</span></div></div>
         </div>
       </div>
       <div class="card stack">
         <div class="tabs"><button id="tabSetup" class="active">Create owner</button><button id="tabLogin">Sign in</button><button id="tabJoin">Join</button></div>
         <div id="setupForm" class="stack">
-          <h2>Create the family owner</h2><p class="muted">Use the setup token entered during Deploy to Cloudflare. The first owner can invite everyone else.</p>
-          <input id="setupName" placeholder="Your name" autocomplete="name" />
-          <input id="setupEmail" placeholder="Email" autocomplete="email" />
-          <input id="setupPassword" placeholder="Password (8+ characters)" type="password" autocomplete="new-password" />
-          <input id="setupToken" placeholder="Setup token" type="password" />
-          <button id="setupButton">Create owner account</button>
+          <h2>Welcome to your family space</h2><p class="muted">Create your account, then invite your family. No Cloudflare accounts needed for them.</p>
+          <label>Your name<input id="setupName" autocomplete="name" /></label>
+          <label>Email<input id="setupEmail" type="email" autocomplete="email" /></label>
+          <label>Password<input id="setupPassword" placeholder="8+ characters" type="password" autocomplete="new-password" /></label>
+          <label>Family name<input id="setupFamilyName" placeholder="The Smith family" /></label>
+          <label id="setupTokenLabel">Private setup token<input id="setupToken" type="password" autocomplete="off" /></label>
+          <button id="setupButton">Create my family</button>
         </div>
         <div id="loginForm" class="stack hidden">
-          <h2>Welcome back</h2><p class="muted">Sign in to this self-deployed FamilyChat.</p>
-          <input id="loginEmail" placeholder="Email" autocomplete="email" />
-          <input id="loginPassword" placeholder="Password" type="password" autocomplete="current-password" />
+          <h2>Welcome back</h2><p class="muted">Sign in to chat or accept your room invitation.</p>
+          <label>Email<input id="loginEmail" type="email" autocomplete="email" /></label>
+          <label>Password<input id="loginPassword" type="password" autocomplete="current-password" /></label>
           <button id="loginButton">Sign in</button>
         </div>
         <div id="joinForm" class="stack hidden">
-          <h2>Join a family</h2><p class="muted">Ask the owner/admin for an invite code.</p>
-          <input id="joinName" placeholder="Your name" autocomplete="name" />
-          <input id="joinEmail" placeholder="Email" autocomplete="email" />
-          <input id="joinPassword" placeholder="Password (8+ characters)" type="password" autocomplete="new-password" />
-          <input id="joinCode" placeholder="Invite code" />
+          <h2>You're invited</h2><p class="muted">Create your account to join the invited room. Already have an account? Select Sign in above.</p>
+          <label>Your name<input id="joinName" autocomplete="name" /></label>
+          <label>Email<input id="joinEmail" type="email" autocomplete="email" /></label>
+          <label>Password<input id="joinPassword" placeholder="8+ characters" type="password" autocomplete="new-password" /></label>
+          <label id="joinCodeLabel">Invite code<input id="joinCode" /></label>
           <button id="joinButton">Join family</button>
         </div>
         <p id="authError" class="error"></p>
@@ -203,7 +210,7 @@ export const appHtml = String.raw`<!doctype html>
       <aside class="card stack session-sidebar-lite">
         <header class="workspace-brand">
           <span class="workspace-avatar" id="memberAvatar" aria-hidden="true">F</span>
-          <span><strong>FamilyChat</strong><small id="memberLabel">Family workspace</small></span>
+          <span><strong id="familyLabel">FamilyChat</strong><small id="memberLabel">Family workspace</small></span>
         </header>
         <button id="newWorkspaceButton" class="new-workspace-button secondary"><span aria-hidden="true">＋</span> New room</button>
         <input id="newWorkspace" class="compact-input" placeholder="Room name" />
@@ -212,7 +219,8 @@ export const appHtml = String.raw`<!doctype html>
         <footer class="session-sidebar-footer-lite"><button id="settingsButton" class="settings-launcher secondary small-button" type="button"><span aria-hidden="true">⚙</span> Settings</button><small id="signedInLabel">Signed in</small><button id="logoutButton" class="secondary small-button">Logout</button></footer>
       </aside>
       <section class="card stack conversation-view-lite">
-        <header class="conversation-header-lite"><div><small>Current room</small><h2 id="roomTitle">Family room</h2></div><div class="room-actions"><p class="muted">Send to everyone, or ask the resident Family Agent.</p><button id="roomInviteButton" class="secondary small-button" type="button">Invite to this room</button><p id="roomInviteResult" class="muted"></p></div></header>
+        <div id="pendingInvite" class="card hidden"><p>You have an invitation to a room.</p><button id="acceptInviteButton">Join invited room</button><p id="inviteError" role="alert"></p></div>
+        <header class="conversation-header-lite"><div><small>Current room</small><h2 id="roomTitle">Family room</h2></div><div class="room-actions"><p class="muted">Send to everyone, or ask the resident Family Agent.</p><button id="roomInviteButton" class="secondary small-button" type="button">Invite family</button><button id="manageInvitesButton" class="secondary small-button" type="button">Manage invites</button><div id="roomInviteResult" class="muted"></div></div></header>
         <div id="messages" class="messages"></div>
         <form class="prompt-bar" id="composerForm"><textarea id="composer" placeholder="Start a new message…"></textarea><div class="composer-footer"><span class="composer-status" id="modelLabel">Workers AI · open-weight model</span><div class="composer-actions"><button id="sendFamily" class="send-family-button" type="button">Send to Family</button><button id="sendAgent" class="ask-agent-button agent" type="button">Ask Agent</button></div></div></form>
         <p id="chatError" class="error"></p>
@@ -223,7 +231,7 @@ export const appHtml = String.raw`<!doctype html>
         <nav class="settings-tabs" aria-label="Settings sections"><button id="settingsTabTools" class="active" type="button">Tools</button><button id="settingsTabCalendar" type="button">Calendar</button><button id="settingsTabAccount" type="button">Account</button></nav>
         <div id="settingsViewTools" class="settings-panel-view stack">
           <section class="settings-section-card"><h2>Agent model</h2><p class="muted">Choose a Workers AI open-weight model, or bring your own Anthropic key for Claude.</p><select id="aiProvider"><option value="workers-ai">Workers AI</option><option value="anthropic">Anthropic / Claude</option></select><select id="aiModel"></select><input id="anthropicKey" type="password" placeholder="Anthropic API key (only for Claude)" /><button id="aiSettingsButton" class="secondary">Save model</button><p id="aiSettingsResult" class="muted"></p></section>
-          <section class="settings-section-card"><h2>Invite + Access reminder</h2><p class="muted">Cloudflare Access is the family perimeter. A room invite controls room membership, but new people must also be allowed by your Access policy before they can open the Worker URL.</p></section>
+          <section id="accessReminder" class="settings-section-card hidden"><h2>Invite + Access reminder</h2><p class="muted">Cloudflare Access is the family perimeter. A room invite controls room membership, but new people must also be allowed by your Access policy before they can open the Worker URL.</p></section>
           <section class="settings-section-card"><h2>Skills</h2><p class="muted">Create small Family Agent skills stored in this Durable Object filesystem.</p><div id="skills" class="stack"></div><input id="skillTitle" placeholder="Skill title, e.g. Meal planner" /><textarea id="skillDescription" placeholder="What should this skill help with?"></textarea><button id="skillButton" class="secondary">Create skill</button><p id="skillError" class="error"></p></section>
           <section class="settings-section-card"><h2>Connections</h2><p class="muted">Connect Streamable HTTP MCP services for family tools.</p><div id="connectors" class="stack"></div><input id="connectorLabel" placeholder="Label, e.g. Gmail MCP" /><input id="connectorUrl" placeholder="https://mcp.example.com/mcp" /><button id="connectorButton" class="secondary">Add connector</button><p id="connectorError" class="error"></p></section>
         </div>
@@ -239,19 +247,22 @@ export const appHtml = String.raw`<!doctype html>
 
   <script type="module">
     const $ = (id) => document.getElementById(id);
+    $('setupToken').value = window.familySetupToken || '';
+    if ($('setupToken').value) $('setupTokenLabel').classList.add('hidden');
+    delete window.familySetupToken;
     let state = { member: null, workspaces: [], workspaceId: null, setupConfigured: false, mode: 'app', aiModels: [], aiSettings: null, skills: [], schedules: [] };
     async function api(path, options = {}) { const response = await fetch(path, { ...options, headers: { 'content-type': 'application/json', ...(options.headers || {}) } }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error || 'Request failed'); return data; }
     const show = (id) => $(id).classList.remove('hidden'); const hide = (id) => $(id).classList.add('hidden');
     const esc = (value) => String(value).replace(/[&<>'"]/g, (c) => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[c]));
     function selectTab(name) { ['Setup','Login','Join'].forEach((n) => { $('tab'+n).classList.toggle('active', n.toLowerCase() === name); $(n.toLowerCase()+'Form').classList.toggle('hidden', n.toLowerCase() !== name); }); $('authError').textContent = ''; }
     ['Setup','Login','Join'].forEach((n) => $('tab'+n).onclick = () => selectTab(n.toLowerCase()));
-    function showAuth(me) { document.body.classList.remove('app-ready'); hide('app'); hide('accessSetup'); show('auth'); state.mode = me.mode || 'app'; state.setupConfigured = me.setup?.configured === true; const invite = new URLSearchParams(location.search).get('invite'); if (invite) { $('joinCode').value = invite; selectTab('join'); } else if (state.setupConfigured) selectTab('login'); else selectTab('setup'); $('status').textContent = me.configured === false ? 'Worker secrets SESSION_SECRET and SETUP_TOKEN are required.' : 'Create or sign in to your FamilyChat account.'; }
+    function showAuth(me) { document.body.classList.remove('app-ready'); hide('app'); hide('accessSetup'); show('auth'); state.mode = me.mode || 'app'; state.setupConfigured = me.setup?.configured === true; $('tabSetup').classList.toggle('hidden', state.setupConfigured); if (state.setupConfigured) $('setupToken').value = ''; const invite = new URLSearchParams(location.search).get('invite'); $('joinCodeLabel').classList.toggle('hidden', Boolean(invite)); if (invite) { $('joinCode').value = invite; selectTab('join'); } else if (state.setupConfigured) selectTab('login'); else selectTab('setup'); $('status').textContent = me.configured === false ? 'Worker secrets SESSION_SECRET and SETUP_TOKEN are required.' : 'Create or sign in to your FamilyChat account.'; }
     function showAccessSetup(access) { document.body.classList.remove('app-ready'); hide('app'); hide('auth'); show('accessSetup'); $('setupHost').textContent = location.host; $('accessState').textContent = access?.state || 'unknown'; $('status').textContent = 'Cloudflare Access setup required'; }
     const initials = (value) => String(value || 'F').trim().split(/\s+/).slice(0,2).map((part) => part[0]).join('').toUpperCase() || 'F';
-    async function boot() { const me = await api('/api/me'); hide('auth'); hide('accessSetup'); hide('app'); if (me.mode === 'access' && !me.ok) { showAccessSetup(me.access); return; } if (!me.ok) { showAuth(me); return; } state.member = me.member; state.mode = me.mode; $('status').textContent = 'Signed in as ' + state.member.name + ' · ' + state.member.role; $('memberAvatar').textContent = initials(state.member.name); $('memberLabel').textContent = state.member.name; $('signedInLabel').textContent = state.member.email || state.member.name; $('accountAvatar').textContent = initials(state.member.name); $('accountName').textContent = state.member.name; $('accountEmail').textContent = (state.member.email || '') + ' · ' + state.member.role; $('accountMode').textContent = state.mode; document.body.classList.add('app-ready'); show('app'); await refreshAll(); }
-    async function refreshAll() { const [workspaces, members, connectors, ai, skills] = await Promise.all([api('/api/workspaces'), api('/api/members'), api('/api/connectors'), api('/api/ai/settings'), api('/api/skills')]); state.workspaces = workspaces.workspaces; state.aiModels = ai.models; state.aiSettings = ai.settings; state.skills = skills.skills; if (!state.workspaceId && state.workspaces[0]) state.workspaceId = state.workspaces[0].id; renderWorkspaces(); renderScheduleWorkspaces(); renderMembers(members.members); renderAiSettings(); renderSkills(); renderConnectors(connectors.connectors); if (state.workspaceId) await refreshMessages(); }
+    async function boot() { const me = await api('/api/me'); hide('auth'); hide('accessSetup'); hide('app'); if (me.mode === 'access' && !me.ok) { showAccessSetup(me.access); return; } if (!me.ok) { showAuth(me); return; } state.member = me.member; state.mode = me.mode; $('setupToken').value = ''; $('familyLabel').textContent = me.setup?.familyName || 'FamilyChat'; $('accessReminder').classList.toggle('hidden', state.mode !== 'access'); $('pendingInvite').classList.toggle('hidden', !new URLSearchParams(location.search).get('invite')); $('roomInviteButton').classList.toggle('hidden', !['owner','admin'].includes(state.member.role)); $('manageInvitesButton').classList.toggle('hidden', !['owner','admin'].includes(state.member.role)); $('status').textContent = 'Signed in as ' + state.member.name + ' · ' + state.member.role; $('memberAvatar').textContent = initials(state.member.name); $('memberLabel').textContent = state.member.name; $('signedInLabel').textContent = state.member.email || state.member.name; $('accountAvatar').textContent = initials(state.member.name); $('accountName').textContent = state.member.name; $('accountEmail').textContent = (state.member.email || '') + ' · ' + state.member.role; $('accountMode').textContent = state.mode; document.body.classList.add('app-ready'); show('app'); await refreshAll(); }
+    async function refreshAll() { const [workspaces, members, connectors, ai, skills] = await Promise.all([api('/api/workspaces'), api('/api/members'), api('/api/connectors'), api('/api/ai/settings'), api('/api/skills')]); state.workspaces = workspaces.workspaces; state.aiModels = ai.models; state.aiSettings = ai.settings; state.skills = skills.skills; if (!state.workspaces.some((w) => w.id === state.workspaceId)) state.workspaceId = state.workspaces[0]?.id || null; renderWorkspaces(); renderScheduleWorkspaces(); renderMembers(members.members); renderAiSettings(); renderSkills(); renderConnectors(connectors.connectors); if (state.workspaceId) await refreshMessages(); else $('messages').innerHTML = '<section class="empty-chat"><h2>Welcome!</h2><p>Accept your room invitation above, or ask your family owner for an invite link.</p></section>'; }
     function renderMembers(members) { $('members').innerHTML = members.map((m) => '<div data-initial="' + esc(initials(m.name)) + '"><span><strong>' + esc(m.name) + '</strong><br><span class="muted">' + esc(m.email || '') + ' · ' + esc(m.role) + '</span></span></div>').join(''); }
-    function renderWorkspaces() { $('workspaces').innerHTML = ''; $('roomCount').textContent = String(state.workspaces.length); for (const workspace of state.workspaces) { const b = document.createElement('button'); b.className = 'item secondary' + (workspace.id === state.workspaceId ? ' active' : ''); b.dataset.initials = initials(workspace.title); b.textContent = workspace.title; b.onclick = async () => { state.workspaceId = workspace.id; renderWorkspaces(); await refreshMessages(); }; $('workspaces').append(b); } const current = state.workspaces.find((w) => w.id === state.workspaceId); $('roomTitle').textContent = current?.title || 'Family room'; }
+    function renderWorkspaces() { $('workspaces').innerHTML = ''; $('roomCount').textContent = String(state.workspaces.length); for (const workspace of state.workspaces) { const b = document.createElement('button'); b.className = 'item secondary' + (workspace.id === state.workspaceId ? ' active' : ''); b.dataset.initials = initials(workspace.title); b.textContent = workspace.title; b.onclick = async () => { $('roomInviteResult').replaceChildren(); state.workspaceId = workspace.id; renderWorkspaces(); await refreshMessages(); }; $('workspaces').append(b); } const current = state.workspaces.find((w) => w.id === state.workspaceId); $('roomTitle').textContent = current?.title || 'Family room'; }
     async function refreshMessages() { const payload = await api('/api/workspaces/' + state.workspaceId + '/messages'); const box = $('messages'); box.innerHTML = ''; if (!payload.messages.length) { box.innerHTML = '<section class="empty-chat"><span class="empty-chat-mark" aria-hidden="true">✦</span><h2>What can I help your family with?</h2><p>Ask a question, share an update, or plan something together.</p></section>'; return; } for (const m of payload.messages) { const item = document.createElement('article'); item.className = 'msg ' + m.kind + (m.authorId === state.member.id ? ' mine' : ''); item.innerHTML = '<div class="byline">' + esc(m.authorName) + '</div><div>' + esc(m.text) + '</div>'; box.append(item); } box.scrollTop = box.scrollHeight; }
     function renderAiSettings() { const provider = state.aiSettings?.provider || 'workers-ai'; $('aiProvider').value = provider; const models = state.aiModels.filter((m) => m.provider === provider); $('aiModel').innerHTML = models.map((m) => '<option value="' + esc(m.id) + '">' + esc(m.label) + '</option>').join(''); $('aiModel').value = state.aiSettings?.model || models[0]?.id || ''; $('anthropicKey').style.display = provider === 'anthropic' ? '' : 'none'; $('anthropicKey').placeholder = state.aiSettings?.apiKeyConfigured ? 'Anthropic API key saved; enter a new one to replace' : 'Anthropic API key'; $('modelLabel').textContent = provider === 'anthropic' ? 'Claude · BYO Anthropic key' : 'Workers AI · open-weight model'; }
     function renderScheduleWorkspaces() { $('scheduleWorkspace').innerHTML = state.workspaces.map((w) => '<option value="' + esc(w.id) + '">' + esc(w.title) + '</option>').join(''); if (state.workspaceId) $('scheduleWorkspace').value = state.workspaceId; }
@@ -261,10 +272,43 @@ export const appHtml = String.raw`<!doctype html>
     function renderSkills() { const root = $('skills'); root.innerHTML = ''; if (!state.skills.length) { root.innerHTML = '<p class="muted">No skills yet.</p>'; return; } for (const skill of state.skills) { const card = document.createElement('div'); card.className = 'card stack'; card.style.padding = '.75rem'; card.innerHTML = '<strong>' + esc(skill.title) + '</strong><span class="muted">' + esc(skill.slug) + ' · ' + (skill.enabled ? 'enabled' : 'disabled') + '</span><span class="muted">' + esc(skill.description) + '</span>'; const toggle = document.createElement('button'); toggle.className = 'secondary'; toggle.textContent = skill.enabled ? 'Disable' : 'Enable'; toggle.onclick = async () => { await api('/api/skills/' + skill.id + '/enabled', { method:'POST', body: JSON.stringify({ enabled: !skill.enabled }) }); await refreshAll(); }; const edit = document.createElement('button'); edit.className = 'secondary'; edit.textContent = 'Edit SKILL.md'; edit.onclick = async () => { const files = await api('/api/skills/' + skill.id + '/files'); const current = files.files.find((f) => f.path === 'SKILL.md')?.content || ''; const next = prompt('Edit SKILL.md', current); if (next !== null) { await api('/api/skills/' + skill.id + '/files', { method:'PUT', body: JSON.stringify({ path:'SKILL.md', content: next }) }); await refreshAll(); } }; const row = document.createElement('div'); row.className = 'row'; row.append(toggle, edit); card.append(row); root.append(card); } }
     function renderConnectors(connectors) { const root = $('connectors'); root.innerHTML = ''; if (!connectors.length) { root.innerHTML = '<p class="muted">No connectors yet.</p>'; return; } for (const c of connectors) { const card = document.createElement('div'); card.className = 'card stack'; card.style.padding = '.75rem'; const tools = c.tools || []; card.innerHTML = '<strong>' + esc(c.label) + '</strong><span class="muted">' + esc(c.url) + '</span><span class="muted">Status: ' + esc(c.status) + '</span>' + (c.lastError ? '<span class="error">' + esc(c.lastError) + '</span>' : '') + (tools.length ? '<span class="muted">Tools: ' + tools.map((t) => esc(t.name)).join(', ') + '</span>' : '<span class="muted">No tools discovered yet.</span>'); const row = document.createElement('div'); row.className = 'row'; const refresh = document.createElement('button'); refresh.className = 'secondary'; refresh.textContent = 'Refresh'; refresh.onclick = async () => { await api('/api/connectors/' + c.id + '/refresh', { method: 'POST', body: '{}' }); await refreshAll(); }; row.append(refresh); if (c.authorizationUrl) { const auth = document.createElement('button'); auth.className = 'agent'; auth.textContent = 'Authorize'; auth.onclick = () => window.open(c.authorizationUrl, 'mcp-oauth', 'popup,width=560,height=720'); row.append(auth); } card.append(row); if (tools.length) { const select = document.createElement('select'); tools.forEach((t) => { const o = document.createElement('option'); o.value = t.name; o.textContent = t.title || t.name; select.append(o); }); const args = document.createElement('textarea'); args.value = '{}'; const call = document.createElement('button'); call.className = 'secondary'; call.textContent = 'Call tool'; const out = document.createElement('pre'); out.className = 'muted'; out.style.whiteSpace = 'pre-wrap'; call.onclick = async () => { out.textContent = 'Calling…'; try { const result = await api('/api/connectors/' + c.id + '/tools/' + encodeURIComponent(select.value) + '/call', { method: 'POST', body: JSON.stringify({ args: JSON.parse(args.value || '{}') }) }); out.textContent = JSON.stringify(result, null, 2); } catch (e) { out.textContent = e.message; } }; card.append(select, args, call, out); } root.append(card); } }
     async function send(target) { const text = $('composer').value.trim(); if (!text || !state.workspaceId) return; $('chatError').textContent = ''; $('composer').value = ''; try { await api('/api/workspaces/' + state.workspaceId + '/messages', { method: 'POST', body: JSON.stringify({ text, target }) }); await refreshMessages(); } catch (e) { $('chatError').textContent = e.message; } }
-    $('setupButton').onclick = async () => { try { await api('/api/setup', { method:'POST', body: JSON.stringify({ name: $('setupName').value, email: $('setupEmail').value, password: $('setupPassword').value, token: $('setupToken').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
+    $('setupButton').onclick = async () => { try { await api('/api/setup', { method:'POST', body: JSON.stringify({ name: $('setupName').value, email: $('setupEmail').value, password: $('setupPassword').value, familyName: $('setupFamilyName').value, token: $('setupToken').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
     $('loginButton').onclick = async () => { try { await api('/api/login', { method:'POST', body: JSON.stringify({ email: $('loginEmail').value, password: $('loginPassword').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
-    $('joinButton').onclick = async () => { try { await api('/api/join', { method:'POST', body: JSON.stringify({ name: $('joinName').value, email: $('joinEmail').value, password: $('joinPassword').value, code: $('joinCode').value }) }); await boot(); } catch (e) { $('authError').textContent = e.message; } };
-    async function createInviteLink() { if (!state.workspaceId) throw new Error('Choose or create a room first.'); const email = prompt('Family member email for the Access-policy reminder (optional)')?.trim() || ''; const invite = await api('/api/invites', { method:'POST', body: JSON.stringify({ role:'member', workspaceId: state.workspaceId }) }); const link = invite.url || (location.origin + '/?invite=' + encodeURIComponent(invite.code) + '&workspace=' + encodeURIComponent(state.workspaceId)); const accessStep = state.mode === 'access' ? '<li>In Cloudflare Zero Trust, allow ' + (email ? '<code>' + esc(email) + '</code>' : 'their email') + ' in the FamilyChat Access policy.</li>' : '<li>Access mode is off, so FamilyChat app auth will handle the join.</li>'; $('roomInviteResult').innerHTML = '<div class="invite-guide"><strong>Room invite created</strong><ol>' + accessStep + '<li>Send this room invite URL: <code>' + esc(link) + '</code></li><li>They will join only this room after sign-in.</li></ol><span class="muted">Copied to clipboard when your browser allows it.</span></div>'; try { await navigator.clipboard?.writeText(link); } catch {} }
+    $('joinButton').onclick = async () => { try { await api('/api/join', { method:'POST', body: JSON.stringify({ name: $('joinName').value, email: $('joinEmail').value, password: $('joinPassword').value, code: $('joinCode').value }) }); state.workspaceId = new URLSearchParams(location.search).get('workspace'); history.replaceState(null, '', location.pathname); await boot(); } catch (e) { $('authError').textContent = e.message; } };
+    async function createInviteLink() {
+      if (!state.workspaceId) throw new Error('Choose or create a room first.');
+      $('roomInviteResult').textContent = 'Creating invite…';
+      const invite = await api('/api/invites', { method:'POST', body: JSON.stringify({ role:'member', workspaceId: state.workspaceId }) });
+      let copied = false;
+      try { if (navigator.clipboard) { await navigator.clipboard.writeText(invite.url); copied = true; } } catch {}
+      $('roomInviteResult').innerHTML = '<strong>' + (copied ? 'Invite copied!' : 'Copy this invite link:') + '</strong><br><code>' + esc(invite.url) + '</code><p>Valid for 7 days, for one person and this room only. New here? Create an account. Already a member? Sign in and accept.</p>' + (state.mode === 'access' ? '<p>First allow their email in your Cloudflare Access policy.</p>' : '');
+    }
+    $('acceptInviteButton').onclick = async () => {
+      $('acceptInviteButton').disabled = true;
+      try {
+        const joined = await api('/api/invites/accept', { method:'POST', body: JSON.stringify({ code: new URLSearchParams(location.search).get('invite') }) });
+        state.workspaceId = joined.workspaceId;
+        history.replaceState(null, '', location.pathname);
+        hide('pendingInvite');
+        await refreshAll();
+      } catch (e) { $('inviteError').textContent = e.message; }
+      finally { $('acceptInviteButton').disabled = false; }
+    };
+    $('manageInvitesButton').onclick = async () => {
+      try {
+        const data = await api('/api/invites?workspaceId=' + encodeURIComponent(state.workspaceId || ''));
+        const root = $('roomInviteResult'); root.replaceChildren();
+        if (!data.invites.length) root.textContent = 'No active invites for this room.';
+        for (const invite of data.invites) {
+          const row = document.createElement('div');
+          const link = location.origin + '/?invite=' + encodeURIComponent(invite.code) + '&workspace=' + encodeURIComponent(state.workspaceId);
+          const text = document.createElement('span'); text.textContent = link + ' · Expires ' + new Date(invite.expiresAt).toLocaleDateString();
+          const revoke = document.createElement('button'); revoke.textContent = 'Revoke'; revoke.className = 'secondary small-button';
+          revoke.onclick = async () => { try { await api('/api/invites/' + encodeURIComponent(invite.code), { method:'DELETE' }); row.remove(); } catch (e) { $('chatError').textContent = e.message; } };
+          row.append(text, revoke); root.append(row);
+        }
+      } catch (e) { $('chatError').textContent = e.message; }
+    };
     $('roomInviteButton').onclick = () => createInviteLink().catch((e) => $('chatError').textContent = e.message);
     $('settingsButton').onclick = () => document.body.classList.add('settings-open');
     $('settingsClose').onclick = () => document.body.classList.remove('settings-open');
@@ -275,7 +319,7 @@ export const appHtml = String.raw`<!doctype html>
     $('refreshCalendarButton').onclick = () => refreshCalendar().catch((e) => $('scheduleError').textContent = e.message);
     $('scheduleButton').onclick = async () => { $('scheduleError').textContent = ''; try { const runAt = new Date($('scheduleRunAt').value).getTime(); await api('/api/schedules', { method:'POST', body: JSON.stringify({ workspaceId: $('scheduleWorkspace').value, instruction: $('scheduleInstruction').value, runAt }) }); $('scheduleInstruction').value = ''; $('scheduleRunAt').value = ''; await refreshCalendar(); } catch (e) { $('scheduleError').textContent = e.message; } };
     $('logoutButton').onclick = async () => { await api('/api/logout', { method:'POST', body:'{}' }); location.reload(); };
-    async function createRoom() { const provided = $('newWorkspace').value.trim(); const title = provided || 'New room ' + (state.workspaces.length + 1); $('chatError').textContent = ''; try { const workspace = await api('/api/workspaces', { method:'POST', body: JSON.stringify({ title }) }); state.workspaceId = workspace.id; $('newWorkspace').value = ''; await refreshAll(); } catch (e) { $('chatError').textContent = e.message; } }
+    async function createRoom() { const provided = $('newWorkspace').value.trim(); const title = provided || 'New room ' + (state.workspaces.length + 1); $('chatError').textContent = ''; try { const workspace = await api('/api/workspaces', { method:'POST', body: JSON.stringify({ title }) }); state.workspaceId = workspace.id; $('roomInviteResult').replaceChildren(); $('newWorkspace').value = ''; await refreshAll(); } catch (e) { $('chatError').textContent = e.message; } }
     $('newWorkspaceButton').onclick = () => createRoom();
     $('newWorkspace').addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); createRoom(); } });
     $('sendFamily').onclick = () => send('family'); $('sendAgent').onclick = () => send('agent'); $('composerForm').onsubmit = (event) => { event.preventDefault(); send('agent'); };

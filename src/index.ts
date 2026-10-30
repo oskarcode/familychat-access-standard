@@ -303,6 +303,7 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
     const member = await family.setupAppOwner({
       token: textField(body, "token"),
       expectedToken: env.SETUP_TOKEN,
+      familyName: optionalTextField(body, "familyName") || undefined,
       name: textField(body, "name"),
       email: textField(body, "email"),
       passwordHash: await hashPassword(textField(body, "password")),
@@ -342,6 +343,19 @@ async function handleApi(request: Request, env: Env): Promise<Response> {
   if (authed instanceof Response) return authed;
 
   if (url.pathname === "/api/members" && request.method === "GET") return json({ members: await authed.family.listMembers() });
+
+  if (url.pathname === "/api/invites/accept" && request.method === "POST") {
+    const body = await requestJson(request);
+    return json(await authed.family.acceptInvite({ actorId: authed.member.id, code: textField(body, "code") }));
+  }
+  if (url.pathname === "/api/invites" && request.method === "GET") {
+    return json({ invites: await authed.family.listInvites({ actorId: authed.member.id, workspaceId: url.searchParams.get("workspaceId") || "" }) });
+  }
+  const inviteMatch = /^\/api\/invites\/([^/]+)$/u.exec(url.pathname);
+  if (inviteMatch && request.method === "DELETE") {
+    await authed.family.revokeInvite({ actorId: authed.member.id, code: decodeURIComponent(inviteMatch[1]) });
+    return json({ ok: true });
+  }
 
   if (url.pathname === "/api/invites" && request.method === "POST") {
     if (authed.member.role !== "owner" && authed.member.role !== "admin") return json({ error: "Only owners and admins can invite members" }, 403);
@@ -467,7 +481,7 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname.startsWith("/api/")) return await handleApi(request, env);
-      if (request.method === "GET" || request.method === "HEAD") return new Response(appHtml, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+      if (request.method === "GET" || request.method === "HEAD") return new Response(appHtml, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
       return json({ error: "Method not allowed" }, 405);
     } catch (error) {
       return json({ error: error instanceof Error ? error.message : "Request failed" }, 400);

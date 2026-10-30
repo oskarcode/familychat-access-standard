@@ -196,7 +196,8 @@ export class FamilyChat extends DurableObject<Env> {
    */
   async setupStatus(): Promise<SetupStatus> {
     const count = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM members").one().count;
-    return { configured: count > 0, memberCount: count };
+    const family = this.ctx.storage.sql.exec<{ value: string }>("SELECT value FROM settings WHERE key = 'family_name'").toArray()[0];
+    return { configured: count > 0, memberCount: count, familyName: family ? JSON.parse(family.value) : "FamilyChat" };
   }
 
   /**
@@ -210,31 +211,35 @@ export class FamilyChat extends DurableObject<Env> {
    * - Owns the `setupAppOwner` step in the FamilyChat request, auth, state, AI, MCP, schedule, or follow-up flow.
    * - Keep validation and side effects here aligned with the route and Durable Object documentation.
    */
-  async setupAppOwner(input: { token: string; expectedToken: string; name: string; email: string; passwordHash: string }): Promise<Member> {
-    if ((await this.setupStatus()).configured) throw new Error("Family is already configured");
-    if (!input.expectedToken || input.token !== input.expectedToken) throw new Error("Setup token is invalid");
-    const member: Member = {
-      id: crypto.randomUUID(),
-      name: safeText(input.name, "Name"),
-      email: input.email.trim().toLowerCase(),
-      role: "owner",
-      createdAt: now(),
-    };
-    this.ctx.storage.sql.exec(
-      "INSERT INTO members (id, name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      member.id,
-      member.name,
-      member.email,
-      member.role,
-      input.passwordHash,
-      member.createdAt,
-    );
-    const workspace = await this.createWorkspace({ actorId: member.id, title: "Family room" });
-    await this.appendAgentMessage({
-      workspaceId: workspace.id,
-      text: "Hi — I’m your family agent. I live in this self-deployed family chat. Send normal family messages with “Send to Family”, or invite me in with “Ask Agent”.",
+  async setupAppOwner(input: { token: string; expectedToken: string; name: string; email: string; passwordHash: string; familyName?: string }): Promise<Member> {
+    const key = await crypto.subtle.generateKey({ name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+    const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(input.expectedToken));
+    if (!input.expectedToken || !(await crypto.subtle.verify("HMAC", key, signature, new TextEncoder().encode(input.token)))) throw new Error("Setup token is invalid");
+    // No awaits inside the transaction: concurrent setup requests cannot both become owner.
+    return this.ctx.storage.transactionSync(() => {
+      if (this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM members").one().count > 0) throw new Error("Family is already configured");
+      const member: Member = {
+        id: crypto.randomUUID(),
+        name: safeText(input.name, "Name"),
+        email: this.validEmail(input.email),
+        role: "owner",
+        createdAt: now(),
+      };
+      this.ctx.storage.sql.exec(
+        "INSERT INTO members (id, name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        member.id, member.name, member.email, member.role, input.passwordHash, member.createdAt,
+      );
+      this.ctx.storage.sql.exec(
+        "INSERT INTO settings (key, value, updated_by, updated_at) VALUES ('family_name', ?, ?, ?)",
+        JSON.stringify(safeText(input.familyName || "My family", "Family name")), member.id, now(),
+      );
+      const workspace = this.insertWorkspace(member.id, "Family room");
+      this.ctx.storage.sql.exec(
+        "INSERT INTO messages (workspace_id, author_id, author_name, kind, text, created_at) VALUES (?, 'family-agent', 'Family Agent', 'agent', ?, ?)",
+        workspace.id, "Welcome! Invite your family using Invite family above. Chat normally, or tap Ask Agent when you want AI help.", now(),
+      );
+      return member;
     });
-    return member;
   }
 
   /**
@@ -274,51 +279,32 @@ export class FamilyChat extends DurableObject<Env> {
    * - Keep validation and side effects here aligned with the route and Durable Object documentation.
    */
   async ensureAccessMember(input: { id: string; name: string; email: string }): Promise<Member> {
-    const existing = await this.getMember(input.id);
-    if (existing !== null) {
-      if (existing.name !== input.name || existing.email !== input.email) {
-        this.ctx.storage.sql.exec("UPDATE members SET name = ?, email = ? WHERE id = ?", input.name, input.email, input.id);
-        return { ...existing, name: input.name, email: input.email };
+    // Access establishes identity, not membership in every room.
+    return this.ctx.storage.transactionSync(() => {
+      const row = this.ctx.storage.sql.exec<{ id: string; name: string; email: string; role: Role; created_at: number }>("SELECT id, name, email, role, created_at FROM members WHERE id = ?", input.id).toArray()[0];
+      const existing = row ? { id: row.id, name: row.name, email: row.email, role: row.role, createdAt: row.created_at } : null;
+      if (existing !== null) {
+        if (existing.name !== input.name || existing.email !== input.email) {
+          this.ctx.storage.sql.exec("UPDATE members SET name = ?, email = ? WHERE id = ?", input.name, input.email, input.id);
+          return { ...existing, name: input.name, email: input.email };
+        }
+        return existing;
       }
-      return existing;
-    }
-
-    const first = !(await this.setupStatus()).configured;
-    const member: Member = {
-      id: input.id,
-      name: safeText(input.name, "Name"),
-      email: input.email.trim().toLowerCase(),
-      role: first ? "owner" : "member",
-      createdAt: now(),
-    };
-    this.ctx.storage.sql.exec(
-      "INSERT INTO members (id, name, email, role, created_at) VALUES (?, ?, ?, ?, ?)",
-      member.id,
-      member.name,
-      member.email,
-      member.role,
-      member.createdAt,
-    );
-
-    const workspaces = await this.listAllWorkspaces();
-    if (workspaces.length === 0) {
-      const workspace = await this.createWorkspace({ actorId: member.id, title: "Family room" });
-      await this.appendAgentMessage({
-        workspaceId: workspace.id,
-        text: "Hi — I’m your family agent. I live in this Cloudflare Access-protected family chat. Send normal family messages with “Send to Family”, or invite me in with “Ask Agent”.",
-      });
-    } else {
-      for (const workspace of workspaces) {
-        this.ctx.storage.sql.exec(
-          "INSERT OR IGNORE INTO workspace_members (workspace_id, member_id, role, created_at) VALUES (?, ?, ?, ?)",
-          workspace.id,
-          member.id,
-          "member",
-          now(),
-        );
-      }
-    }
-    return member;
+      const first = this.ctx.storage.sql.exec<{ count: number }>("SELECT COUNT(*) AS count FROM members").one().count === 0;
+      const member: Member = {
+        id: input.id,
+        name: safeText(input.name, "Name"),
+        email: input.email.trim().toLowerCase(),
+        role: first ? "owner" : "member",
+        createdAt: now(),
+      };
+      this.ctx.storage.sql.exec(
+        "INSERT INTO members (id, name, email, role, created_at) VALUES (?, ?, ?, ?, ?)",
+        member.id, member.name, member.email, member.role, member.createdAt,
+      );
+      if (first) this.insertWorkspace(member.id, "Family room");
+      return member;
+    });
   }
 
   /**
@@ -379,7 +365,8 @@ export class FamilyChat extends DurableObject<Env> {
     const actor = await this.requireWorkspaceMember(input.actorId, input.workspaceId);
     if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can invite members");
     const code = randomCode(10);
-    const role = normalizeRole(input.role);
+    const role = normalizeRole(input.role === "owner" ? "member" : input.role);
+    if (role === "admin" && actor.role !== "owner") throw new Error("Only owners can invite admins");
     const createdAt = now();
     const expiresAt = createdAt + INVITE_TTL_MS;
     this.ctx.storage.sql.exec(
@@ -406,51 +393,68 @@ export class FamilyChat extends DurableObject<Env> {
    * - Keep validation and side effects here aligned with the route and Durable Object documentation.
    */
   async joinWithInvite(input: { code: string; name: string; email?: string | null; passwordHash?: string | null }): Promise<Member> {
-    const code = safeText(input.code, "Invite code", 200);
-    const invite = this.ctx.storage.sql
-      .exec<{ code: string; role: Role; expires_at: number; used_by: string | null; workspace_id: string | null }>(
-        "SELECT code, role, expires_at, used_by, workspace_id FROM invites WHERE code = ?",
-        code,
-      )
-      .toArray()[0];
-    if (invite === undefined || invite.used_by !== null || invite.expires_at < now()) throw new Error("Invite is invalid or expired");
-    const member: Member = {
-      id: crypto.randomUUID(),
-      name: safeText(input.name, "Name"),
-      email: input.email?.trim().toLowerCase() || null,
-      role: invite.role,
-      createdAt: now(),
-    };
-    this.ctx.storage.sql.exec(
-      "INSERT INTO members (id, name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-      member.id,
-      member.name,
-      member.email,
-      member.role,
-      input.passwordHash ?? null,
-      member.createdAt,
-    );
-    this.ctx.storage.sql.exec("UPDATE invites SET used_by = ? WHERE code = ?", member.id, code);
-    if (invite.workspace_id) {
+    return this.ctx.storage.transactionSync(() => {
+      const code = safeText(input.code, "Invite code", 200);
+      const invite = this.availableInvite(code);
+      const email = this.validEmail(input.email || "");
+      if (this.ctx.storage.sql.exec("SELECT id FROM members WHERE lower(email) = ?", email).toArray().length) throw new Error("An account with this email already exists. Sign in to accept the invite.");
+      const member: Member = {
+        id: crypto.randomUUID(),
+        name: safeText(input.name, "Name"),
+        email,
+        role: invite.role,
+        createdAt: now(),
+      };
       this.ctx.storage.sql.exec(
-        "INSERT OR IGNORE INTO workspace_members (workspace_id, member_id, role, created_at) VALUES (?, ?, ?, ?)",
-        invite.workspace_id,
-        member.id,
-        "member",
-        now(),
+        "INSERT INTO members (id, name, email, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        member.id, member.name, member.email, member.role, input.passwordHash ?? null, member.createdAt,
       );
-    } else {
-      for (const workspace of await this.listAllWorkspaces()) {
-        this.ctx.storage.sql.exec(
-          "INSERT OR IGNORE INTO workspace_members (workspace_id, member_id, role, created_at) VALUES (?, ?, ?, ?)",
-          workspace.id,
-          member.id,
-          "member",
-          now(),
-        );
-      }
-    }
-    return member;
+      this.consumeInvite(code, member.id, invite.workspace_id);
+      return member;
+    });
+  }
+
+  /** Input: an authenticated member and invite. Output: the joined room ID.
+   * Atomically consumes a single-use invite without changing an existing user's global role. */
+  async acceptInvite(input: { actorId: string; code: string }): Promise<{ workspaceId: string }> {
+    await this.requireMember(input.actorId);
+    return this.ctx.storage.transactionSync(() => {
+      const invite = this.availableInvite(input.code);
+      this.consumeInvite(input.code, input.actorId, invite.workspace_id);
+      return { workspaceId: invite.workspace_id };
+    });
+  }
+
+  private validEmail(value: string): string {
+    const email = safeText(value, "Email", 254).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) throw new Error("Enter a valid email address");
+    return email;
+  }
+
+  private availableInvite(code: string): { workspace_id: string; role: Role } {
+    const invite = this.ctx.storage.sql.exec<{ workspace_id: string | null; role: Role; used_by: string | null; expires_at: number }>("SELECT workspace_id, role, used_by, expires_at FROM invites WHERE code = ?", code).toArray()[0];
+    // Legacy family-wide invites must be replaced, never expanded to all rooms.
+    if (!invite?.workspace_id || invite.used_by !== null || invite.expires_at <= now() || !this.ctx.storage.sql.exec("SELECT id FROM workspaces WHERE id = ?", invite.workspace_id).toArray().length) throw new Error("Invite is invalid or expired. Ask for a new room invite.");
+    return { workspace_id: invite.workspace_id, role: invite.role };
+  }
+
+  private consumeInvite(code: string, memberId: string, workspaceId: string): void {
+    this.ctx.storage.sql.exec("INSERT OR IGNORE INTO workspace_members (workspace_id, member_id, role, created_at) VALUES (?, ?, 'member', ?)", workspaceId, memberId, now());
+    this.ctx.storage.sql.exec("UPDATE invites SET used_by = ? WHERE code = ?", memberId, code);
+  }
+
+  async listInvites(input: { actorId: string; workspaceId: string }): Promise<{ code: string; expiresAt: number }[]> {
+    const actor = await this.requireWorkspaceMember(input.actorId, input.workspaceId);
+    if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can manage invites");
+    return this.ctx.storage.sql.exec<{ code: string; expires_at: number }>("SELECT code, expires_at FROM invites WHERE workspace_id = ? AND used_by IS NULL AND expires_at > ? ORDER BY created_at DESC", input.workspaceId, now()).toArray().map(row => ({ code: row.code, expiresAt: row.expires_at }));
+  }
+
+  async revokeInvite(input: { actorId: string; code: string }): Promise<void> {
+    const invite = this.ctx.storage.sql.exec<{ workspace_id: string | null }>("SELECT workspace_id FROM invites WHERE code = ?", input.code).toArray()[0];
+    if (!invite?.workspace_id) throw new Error("Invite not found");
+    const actor = await this.requireWorkspaceMember(input.actorId, invite.workspace_id);
+    if (actor.role !== "owner" && actor.role !== "admin") throw new Error("Only owners and admins can manage invites");
+    this.ctx.storage.sql.exec("DELETE FROM invites WHERE code = ?", input.code);
   }
 
   /**
@@ -490,10 +494,15 @@ export class FamilyChat extends DurableObject<Env> {
    */
   async createWorkspace(input: { actorId: string; title: string }): Promise<Workspace> {
     const actor = await this.requireMember(input.actorId);
+    return this.ctx.storage.transactionSync(() => this.insertWorkspace(actor.id, input.title));
+  }
+
+  /** Creates a private room for its creator; callers wrap related writes in a transaction. */
+  private insertWorkspace(actorId: string, title: string): Workspace {
     const workspace: Workspace = {
       id: crypto.randomUUID(),
-      title: safeText(input.title, "Workspace title"),
-      createdBy: actor.id,
+      title: safeText(title, "Workspace title"),
+      createdBy: actorId,
       createdAt: now(),
     };
     this.ctx.storage.sql.exec(
@@ -503,15 +512,10 @@ export class FamilyChat extends DurableObject<Env> {
       workspace.createdBy,
       workspace.createdAt,
     );
-    for (const member of await this.listMembers()) {
-      this.ctx.storage.sql.exec(
-        "INSERT OR IGNORE INTO workspace_members (workspace_id, member_id, role, created_at) VALUES (?, ?, ?, ?)",
-        workspace.id,
-        member.id,
-        member.id === actor.id ? "owner" : "member",
-        now(),
-      );
-    }
+    this.ctx.storage.sql.exec(
+      "INSERT INTO workspace_members (workspace_id, member_id, role, created_at) VALUES (?, ?, 'owner', ?)",
+      workspace.id, actorId, now(),
+    );
     return workspace;
   }
 

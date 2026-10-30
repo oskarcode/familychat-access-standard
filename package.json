@@ -6,12 +6,14 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest --run",
-    "check": "pnpm typecheck && pnpm test && wrangler deploy --dry-run --outdir .wrangler/dry-run",
+    "check": "pnpm typecheck && pnpm test && wrangler deploy --dry-run --outdir .wrangler/dry-run && node --test scripts/test-onboarding.mjs scripts/test-deploy.mjs",
+    "test:browser": "pnpm check && node scripts/test-browser.mjs",
     "deploy": "wrangler deploy",
     "deploy:self": "node scripts/deploy-self.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261021.1",
+    "@playwright/test": "1.58.2",
     "typescript": "^5.9.3",
     "vitest": "^2.1.9",
     "wrangler": "^4.42.0"
